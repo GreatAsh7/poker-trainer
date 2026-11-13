@@ -1,23 +1,18 @@
-/** Basic HUD statistics computed from public hand histories (actions only). */
+/** HUD numbers from public hand histories. Walks are not counted as preflop decisions. */
 import type { HandState } from '../engine/game';
+import { computeStats } from '../bots/stats';
 
 export interface HudStats {
+  /** preflop decisions (hands minus walks) */
   hands: number;
   vpip: number; // count
   pfr: number; // count
 }
 
 export function hudStats(history: readonly HandState[]): Record<string, HudStats> {
+  const all = computeStats(history);
   const out: Record<string, HudStats> = {};
-  for (const h of history) {
-    h.players.forEach((p, pi) => {
-      const st = (out[p.id] ??= { hands: 0, vpip: 0, pfr: 0 });
-      st.hands++;
-      const pre = h.actions.filter((a) => a.pi === pi && a.street === 'preflop');
-      if (pre.some((a) => a.type === 'call' || a.type === 'raise' || a.type === 'bet')) st.vpip++;
-      if (pre.some((a) => a.type === 'raise' || a.type === 'bet')) st.pfr++;
-    });
-  }
+  for (const [id, s] of Object.entries(all)) out[id] = { hands: s.vpip.opp, vpip: s.vpip.n, pfr: s.pfr.n };
   return out;
 }
 

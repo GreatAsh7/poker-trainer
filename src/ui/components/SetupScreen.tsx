@@ -1,14 +1,27 @@
 import { useState } from 'react';
 import type { MatchSetup } from '../controller';
-import type { BotProfile } from '../../bots/types';
+import type { BotProfile, BotStyle } from '../../bots/types';
 
-export const BOT_ROSTER: BotProfile[] = [
-  { id: 'bot-mara', name: 'Mara', style: 'placeholder' },
-  { id: 'bot-dex', name: 'Dex', style: 'placeholder' },
-  { id: 'bot-ivo', name: 'Ivo', style: 'placeholder' },
-  { id: 'bot-lena', name: 'Lena', style: 'placeholder' },
-  { id: 'bot-rook', name: 'Rook', style: 'placeholder' },
-];
+const NAMES = ['Mara', 'Dex', 'Ivo', 'Lena', 'Rook'];
+
+export type Difficulty = 'mixed' | 'expert' | 'easy';
+
+/** Bot line-ups per difficulty (first N are used for smaller tables). */
+const LINEUPS: Record<Difficulty, BotStyle[]> = {
+  mixed: ['tag', 'lag', 'expert', 'nit', 'station'],
+  expert: ['expert', 'expert', 'expert', 'expert', 'expert'],
+  easy: ['station', 'nit', 'station', 'tag', 'nit'],
+};
+
+export const DIFFICULTY_INFO: Record<Difficulty, { label: string; blurb: string }> = {
+  mixed: { label: 'Mixed table', blurb: 'One of each style: solid, aggressive, expert, tight-passive and a calling station.' },
+  expert: { label: 'Expert table', blurb: 'Every bot plays the strongest balanced strategy and adapts to you.' },
+  easy: { label: 'Softer table', blurb: 'Mostly loose-passive and tight-passive players: practise value betting.' },
+};
+
+export function rosterFor(d: Difficulty): BotProfile[] {
+  return LINEUPS[d].map((style, i) => ({ id: `bot-${NAMES[i].toLowerCase()}`, name: NAMES[i], style }));
+}
 
 interface Props {
   onStart: (s: MatchSetup) => void;
@@ -51,6 +64,7 @@ export function SetupScreen({ onStart, initial }: Props) {
   const [startingBB, setStartingBB] = useState(initial?.startingBB ?? 100);
   const [hands, setHands] = useState(initial?.hands ?? 50);
   const [rebuy, setRebuy] = useState(initial?.rebuy ?? false);
+  const [difficulty, setDifficulty] = useState<Difficulty>(initial?.difficulty ?? 'mixed');
   return (
     <div className="setup">
       <div className="setup__card">
@@ -64,6 +78,8 @@ export function SetupScreen({ onStart, initial }: Props) {
         <Segmented label="Players" value={numBots + 1} options={[2, 3, 4, 5, 6]} onChange={(v) => setNumBots(v - 1)} format={(v) => (v === 2 ? 'Heads-up' : `${v}-max`)} />
         <Segmented label="Starting stack" value={startingBB} options={[20, 50, 100, 150, 200]} onChange={setStartingBB} format={(v) => `${v} BB`} />
         <Segmented label="Match length" value={hands} options={[25, 50, 100]} onChange={setHands} format={(v) => `${v} hands`} />
+        <Segmented label="Opponents" value={difficulty} options={['mixed', 'expert', 'easy'] as Difficulty[]} onChange={setDifficulty} format={(v) => DIFFICULTY_INFO[v].label} />
+        <p className="setup__hint">{DIFFICULTY_INFO[difficulty].blurb}</p>
         <div className="field">
           <span className="field__label">Rebuy</span>
           <label className="toggle">
@@ -77,7 +93,7 @@ export function SetupScreen({ onStart, initial }: Props) {
           className="btn btn--primary btn--large"
           autoFocus
           onClick={() =>
-            onStart({ numBots, startingBB, hands, rebuy, seed: (Date.now() ^ (Math.random() * 1e9)) >>> 0, bots: BOT_ROSTER })
+            onStart({ numBots, startingBB, hands, rebuy, difficulty, seed: (Date.now() ^ (Math.random() * 1e9)) >>> 0, bots: rosterFor(difficulty) })
           }
           data-testid="start-match"
         >

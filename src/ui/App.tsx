@@ -109,7 +109,11 @@ export function App() {
   else if (nextActor) waiting = `${nextActor} to act`;
   else if (snap.phase === 'handOver') waiting = 'Hand over — next hand coming up';
   if (heroDisplay?.folded && snap.phase === 'playing') waiting = `You folded — watching the rest of the hand${thinkingName ? ` · ${thinkingName} is thinking…` : ''}`;
-  const preflopRaised = !!h && h.actions.some((a) => a.street === 'preflop' && (a.type === 'raise' || a.type === 'bet'));
+  const preActs = h ? h.actions.filter((a) => a.street === 'preflop') : [];
+  const preflopRaises = preActs.filter((a) => a.type === 'raise' || a.type === 'bet').length;
+  const firstRaise = preActs.findIndex((a) => a.type === 'raise' || a.type === 'bet');
+  const limpers = preActs.filter((a, i) => a.type === 'call' && (firstRaise < 0 || i < firstRaise)).length;
+  const totals = h ? h.players.map((p) => p.totalBet) : [];
   const replayHand = replayId !== null ? snap.history.find((x) => x.handId === replayId) : undefined;
 
   return (
@@ -180,7 +184,10 @@ export function App() {
             pot={d?.totalPot ?? 0}
             currentBet={h?.currentBet ?? 0}
             bigBlind={bb}
-            preflopRaised={preflopRaised}
+            preflopRaises={preflopRaises}
+            limpers={limpers}
+            totals={totals}
+            heroPi={snap.userPi}
             waitingText={waiting}
             onAct={onAct}
             decisionKey={`${h?.handId ?? 0}-${h?.actions.length ?? 0}-${snap.legal ? 1 : 0}`}

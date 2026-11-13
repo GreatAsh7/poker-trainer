@@ -365,6 +365,7 @@ h1, h2, h3 { margin: 0; }
 .setup__brand h1 { font-size: 30px; letter-spacing: 0.01em; margin-top: 4px; }
 .setup__brand p { color: var(--muted); margin: 8px 0 0; }
 .setup__suits { color: var(--gold); letter-spacing: 0.3em; }
+.setup__hint { margin: -8px 0 0; color: var(--muted); font-size: 13px; min-height: 36px; }
 .setup__blinds { margin: 0; text-align: center; color: var(--faint); font-size: 13px; }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field__label { font-size: 13px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }

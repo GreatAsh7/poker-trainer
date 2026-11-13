@@ -7,7 +7,7 @@ export function fmtChips(n: number): string {
 export function fmtBB(n: number, bb = BB): string {
   const v = n / bb;
   const s = Number.isInteger(v) ? v.toString() : v >= 100 ? v.toFixed(0) : v.toFixed(1);
-  return `${s} BB`;
+  return `${s.replace('-', '−')} BB`;
 }
 
 export function fmtPct(x: number, digits = 0): string {

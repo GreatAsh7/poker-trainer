@@ -9,6 +9,7 @@ import {
 } from '../engine/match';
 import { viewFor, publicHand } from '../engine/view';
 import type { BotDecision, BotProfile } from '../bots/types';
+import { addHand, toModel, type OpponentModel, type PlayerStats } from '../bots/stats';
 import { deriveDisplay, describeEvent, type TableDisplay } from './display';
 
 export interface MatchSetup {
@@ -17,6 +18,7 @@ export interface MatchSetup {
   hands: number;
   rebuy: boolean;
   seed: number;
+  difficulty: 'mixed' | 'expert' | 'easy';
   bots: BotProfile[];
 }
 
@@ -66,7 +68,7 @@ export interface Snapshot {
 }
 
 export interface DecideFn {
-  (profile: BotProfile, h: HandState, pi: number, seed: number): Promise<BotDecision>;
+  (profile: BotProfile, h: HandState, pi: number, seed: number, models: Record<string, OpponentModel>): Promise<BotDecision>;
 }
 
 const USER_ID = 'you';
@@ -83,6 +85,9 @@ export class TableController {
   /** the real hand state (contains hidden cards; never put in the snapshot) */
   private full: HandState | null = null;
   private fullHands: HandState[] = [];
+  /** public stats of every player this match (what the bots know about each other and you) */
+  private stats: Record<string, PlayerStats> = {};
+  private models: Record<string, OpponentModel> = {};
   private setup: MatchSetup | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
 
@@ -134,6 +139,8 @@ export class TableController {
     const match = createMatch({ smallBlind: 1, bigBlind: bb }, setup.startingBB * bb, players, firstButton);
     this.fullHands = [];
     this.full = null;
+    this.stats = {};
+    this.models = {};
     this.set({
       phase: 'playing',
       match,
@@ -264,7 +271,16 @@ export class TableController {
     for (let i = from; i < to; i++) {
       const e = h.events[i];
       if (e.kind === 'street') {
-        log.lines.push({ kind: 'street', text: `${e.street[0].toUpperCase()}${e.street.slice(1)}: ${cardsToString(e.cards)}` });
+        const prior: number[] = [];
+        for (let j = 0; j < i; j++) {
+          const ej = h.events[j];
+          if (ej.kind === 'street') prior.push(...ej.cards);
+        }
+        const label = `${e.street[0].toUpperCase()}${e.street.slice(1)}`;
+        log.lines.push({
+          kind: 'street',
+          text: prior.length ? `${label}: ${cardsToString(prior)} [${cardsToString(e.cards)}]` : `${label}: ${cardsToString(e.cards)}`,
+        });
         continue;
       }
       const text = describeEvent(h, i, userPi);
@@ -327,7 +343,7 @@ export class TableController {
               this.settings.thinkMin + this.rng() * Math.max(0, this.settings.thinkMax - this.settings.thinkMin);
             this.set({ thinkingPi: pi, thinkStart: performance.now(), thinkDuration: duration, legal: null });
             const seed = Math.floor(this.rng() * 2 ** 31);
-            const [decision] = await Promise.all([this.decide(profile, h, pi, seed), this.sleep(duration, gen)]);
+            const [decision] = await Promise.all([this.decide(profile, h, pi, seed, this.models), this.sleep(duration, gen)]);
             action = decision.action;
             if (validateAction(h, action)) {
               // never let a bad bot decision stall the table
@@ -343,6 +359,9 @@ export class TableController {
         if (gen !== this.gen) return;
         m = recordHand(m, h).match;
         this.fullHands.push(h);
+        const pub = publicHand(h, -1);
+        addHand(this.stats, pub);
+        this.models = Object.fromEntries(Object.entries(this.stats).map(([id, s]) => [id, toModel(s)]));
         this.set({
           history: [...this.snap.history, publicHand(h, userPi)].slice(-200),
           phase: 'handOver',
@@ -380,5 +399,5 @@ export function positionName(h: HandState, pi: number): string {
 }
 
 export function createDecideFn(client: { decide: (req: import('../bots/types').BotDecisionRequest) => Promise<BotDecision> }): DecideFn {
-  return (profile, h, pi, seed) => client.decide({ view: viewFor(h, pi), profile, seed });
+  return (profile, h, pi, seed, models) => client.decide({ view: viewFor(h, pi), profile, seed, models });
 }

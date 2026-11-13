@@ -88,9 +88,24 @@ export function tabledPlayers(s: HandState, upTo = s.events.length): Set<number>
 export function publicHand(s: HandState, viewerPi: number, upTo = s.events.length): HandState {
   const tabled = tabledPlayers(s, upTo);
   const visible = (pi: number) => pi === viewerPi || tabled.has(pi);
+  const events = s.events.slice(0, upTo);
+  const caughtUp = upTo >= s.events.length;
+  const board: number[] = [];
+  let nActions = 0;
+  for (const e of events) {
+    if (e.kind === 'street') board.push(...e.cards);
+    if (e.kind === 'action') nActions++;
+  }
   return {
     ...s,
     deck: [],
+    events,
+    board: caughtUp ? [...s.board] : board,
+    actions: s.actions.slice(0, nActions),
+    awards: caughtUp ? s.awards : [],
+    shown: caughtUp ? s.shown : [],
+    toAct: caughtUp ? s.toAct : -1,
+    finished: caughtUp && s.finished,
     players: s.players.map((p, pi) => ({ ...p, hole: visible(pi) ? [...p.hole] : [] })),
     values: s.values.map((v, pi) => (visible(pi) ? v : 0)),
   };

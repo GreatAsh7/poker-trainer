@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Action, LegalActions, Street } from '../../engine/game';
-import { clampTo, defaultRaiseTo, presetsFor, stepFor, type PresetContext } from '../presets';
+import { clampTo, defaultRaiseTo, potOdds, presetsFor, stepFor, type PresetContext } from '../presets';
 import { fmtBB, fmtChips } from '../format';
 
 interface Props {
@@ -9,7 +9,11 @@ interface Props {
   pot: number;
   currentBet: number;
   bigBlind: number;
-  preflopRaised: boolean;
+  preflopRaises: number;
+  limpers: number;
+  /** chips each player has committed this hand (for pot odds) */
+  totals: readonly number[];
+  heroPi: number;
   /** text shown when it is not the hero's turn */
   waitingText: string;
   onAct: (a: Action) => void;
@@ -22,7 +26,7 @@ const PLACEHOLDER_PRESETS = ['⅓', '½', '⅔', 'Pot', 'All-in'].map((label) =>
 export function ActionBar(p: Props) {
   const { legal } = p;
   const ctx: PresetContext | null = legal
-    ? { legal, street: p.street, pot: p.pot, currentBet: p.currentBet, bigBlind: p.bigBlind, preflopRaised: p.preflopRaised }
+    ? { legal, street: p.street, pot: p.pot, currentBet: p.currentBet, bigBlind: p.bigBlind, preflopRaises: p.preflopRaises, limpers: p.limpers }
     : null;
   const presets = useMemo(() => (ctx ? presetsFor(ctx) : []), [p.decisionKey, !!legal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [raiseTo, setRaiseTo] = useState(0);
@@ -105,7 +109,8 @@ export function ActionBar(p: Props) {
   }, []);
 
   const toCall = legal?.toCall ?? 0;
-  const potOdds = toCall > 0 ? toCall / (p.pot + toCall) : 0;
+  const odds = legal ? potOdds(legal, p.totals, p.heroPi) : null;
+  const need = odds?.need ?? 0;
   const raiseLabel = legal?.raiseType === 'bet' ? 'Bet' : 'Raise to';
   const allIn = legal && legal.raiseType && raiseTo === legal.maxTo;
 
@@ -121,12 +126,12 @@ export function ActionBar(p: Props) {
               </span>
               <span className="dot">·</span>
               <span>
-                Pot <strong>{fmtChips(p.pot)}</strong>
+                Pot <strong>{fmtChips(odds?.pot ?? p.pot)}</strong>
               </span>
               <span className="dot">·</span>
               <span title="Pot odds: the share of the final pot you pay to call. If your chance of winning is higher than this, calling makes money in the long run.">
-                Pot odds <strong>{((1 - potOdds) / potOdds).toFixed(1)} : 1</strong> — you need{' '}
-                <strong>{(potOdds * 100).toFixed(1)}%</strong> equity to call
+                Pot odds <strong>{((1 - need) / need).toFixed(1)} : 1</strong> — you need{' '}
+                <strong>{(need * 100).toFixed(1)}%</strong> equity to call
               </span>
             </>
           ) : (

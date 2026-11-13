@@ -218,7 +218,11 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
       folded: seats[pi].folded,
     }));
     const ps = computePots(committed);
-    if (ps.length > 1) pots = ps.map((p, i) => ({ amount: p.amount, label: i === 0 ? 'Main pot' : `Side pot ${i}` }));
+    if (ps.length > 1) {
+      const awarded = new Set(awards.map((a) => a.potIndex));
+      const open = ps.map((p, i) => ({ amount: p.amount, label: i === 0 ? 'Main pot' : `Side pot ${i}` })).filter((_, i) => !awarded.has(i));
+      if (open.length > 1) pots = open;
+    }
   }
   return {
     handId: h.handId,
@@ -243,7 +247,7 @@ export function describeEvent(h: HandState, i: number, viewerPi: number): string
   const name = (pi: number) => (pi === viewerPi ? 'You' : h.players[pi].name);
   switch (e.kind) {
     case 'post':
-      return `${name(e.pi)} post${e.pi === viewerPi ? '' : 's'} ${e.blind === 'sb' ? 'small blind' : 'big blind'} ${e.amount}`;
+      return `${name(e.pi)} post${e.pi === viewerPi ? '' : 's'} ${e.blind === 'sb' ? 'small blind' : 'big blind'} ${e.amount}${e.allIn ? ' (all-in)' : ''}`;
     case 'deal':
       return null;
     case 'action': {
@@ -268,9 +272,9 @@ export function describeEvent(h: HandState, i: number, viewerPi: number): string
     case 'street':
       return null;
     case 'refund':
-      return `Uncalled ${e.amount} returned to ${name(e.pi)}`;
+      return `Uncalled bet (${e.amount}) returned to ${name(e.pi)}`;
     case 'show':
-      return `${name(e.pi)} ${e.pi === viewerPi ? 'show' : 'shows'} ${e.handName}`;
+      return `${name(e.pi)} ${e.pi === viewerPi ? 'show' : 'shows'} ${cardsToString(e.cards)} — ${e.handName}`;
     case 'muck':
       return `${name(e.pi)} ${e.pi === viewerPi ? 'muck' : 'mucks'}`;
     case 'award': {
