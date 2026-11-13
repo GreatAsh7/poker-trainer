@@ -30,7 +30,7 @@ for (let i = 0; i < N; i++) {
     const pi = h.toAct;
     const v = viewFor(h, pi);
     const models: Record<string, ReturnType<typeof toModel>> = {};
-    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id]);
+    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id], v.players.length);
     const d = decide({ view: v, persona: PERSONALITIES[pi === seat ? 'expert' : (opp as 'tag')], models, rng });
     if (pi === seat) mine.push(`${h.street} ${(d.reason ?? '').replace(/[\d.]+%?/g, '#').replace(/\(.*?\)/g, '').slice(0, 55)}`);
     h = applyAction(h, d.action);

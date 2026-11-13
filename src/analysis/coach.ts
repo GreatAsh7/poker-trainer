@@ -2,18 +2,19 @@
  * End-of-match coaching report. Works only from public hand histories (the hero's cards,
  * the board, and cards that were shown), so advice is about decisions, not results.
  */
-import { cardsToString, type Card } from '../engine/cards';
+import { cardToString, type Card } from '../engine/cards';
 import type { Action, HandState } from '../engine/game';
 import { evaluate } from '../engine/evaluator';
 import { positionOf, type Position } from '../engine/position';
 import { computeStats, rate, aggressionFactor, toModel, type PlayerStats, type OpponentModel, type Counter } from '../bots/stats';
 import { decisionsOf } from './replay';
-import { analyzeDecision, type DecisionAnalysis } from './decision';
+import { analyzeDecision, type DecisionAnalysis, type OptionEV } from './decision';
 
 // ------------------------------------------------------------------------- types
 
 export type MistakeKind =
-  | 'call-no-odds' | 'fold-with-odds' | 'missed-value' | 'bad-bluff' | 'overplayed' | 'missed-raise' | 'sizing' | 'passive-allin';
+  | 'call-no-odds' | 'fold-with-odds' | 'missed-value' | 'bad-bluff' | 'overplayed' | 'missed-raise' | 'sizing' | 'passive-allin'
+  | 'missed-bet' | 'limp' | 'missed-open' | 'loose-open';
 export type GoodKind = 'good-fold' | 'good-call' | 'good-value' | 'good-bluff';
 
 export interface DecisionNote {
@@ -28,6 +29,8 @@ export interface DecisionNote {
   equity: number;
   villainName: string;
   heroLabel: string;
+  /** the hero's action in the past tense, e.g. "called", "raised to 12" */
+  heroPast: string;
   bestLabel: string;
   evLoss: number;
   heroEV: number;
@@ -77,6 +80,8 @@ export interface MatchReport {
   id: string;
   date: string;
   settings: { players: number; startingBB: number; hands: number; difficulty: string };
+  /** id of the match the report belongs to (for replays) */
+  matchKey?: string;
   bigBlind: number;
   hands: number;
   net: number;
@@ -126,6 +131,17 @@ function streetName(s: string) {
   return s === 'preflop' ? 'preflop' : `on the ${s}`;
 }
 
+const pastLabel = (a: Action) =>
+  a.type === 'fold' ? 'folded' : a.type === 'check' ? 'checked' : a.type === 'call' ? 'called' : a.type === 'bet' ? `bet ${a.amount}` : `raised to ${a.amount}`;
+
+/** "against Dex's likely range (…)" or, multiway, "against your 2 opponents (Dex's likely range: …)" */
+function against(d: DecisionAnalysis): string {
+  const villain = d.villainName || 'your opponent';
+  const range = mixText(d);
+  if (d.nOpp > 1) return `against your ${d.nOpp} opponents (main opponent ${villain}, likely range: ${range})`;
+  return `against ${villain}'s likely range (${range})`;
+}
+
 /** Classify a decision and write the explanation. */
 function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: string } {
   const bb = d.bigBlind;
@@ -134,98 +150,127 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
   const lossBB = d.evLoss / bb;
   const villain = d.villainName || 'your opponent';
   const where = streetName(d.street);
-  const range = mixText(d);
   const sameKind = hero === best;
-  const threshold = Math.max(1.5, (0.08 * d.pot) / bb);
+  const pre = d.street === 'preflop';
+  const threshold = pre ? Math.max(0.75, (0.08 * d.pot) / bb) : Math.max(1.5, (0.08 * d.pot) / bb);
   const opt = (k: string) => d.options.find((o) => o.kind === k);
-  const lines: string[] = [];
+  const call = opt('call');
+  // equity actually realised by a call (after position / future betting), for explanations
+  const realised = call ? (call.ev + d.toCall) / Math.max(1, d.pot + d.toCall) : d.equity;
+  const realisedNote =
+    call && Math.abs(realised - d.equity) >= 0.02
+      ? ` Out of position and with betting still to come you only realise about ${pct(realised)} of that.`
+      : '';
+  const raiseOpt = d.options.filter((o) => o.kind === 'raise' || o.kind === 'bet').reduce<OptionEV | null>((a, b) => (!a || b.ev > a.ev ? b : a), null);
+
+  // ------------------------------------------------ preflop, first in
+  if (pre && d.unopened && !sameKind && lossBB >= threshold) {
+    const posTxt = `from the ${d.position}`;
+    const chartTxt = d.openChart ? `a standard ${d.position} opening range is about the top ${pct(d.openChart.rangePct)} of hands` : '';
+    if (hero === 'call') {
+      return {
+        kind: 'limp',
+        text:
+          best === 'fold'
+            ? `You limped (just called the big blind) ${posTxt} with ${d.handClass}, which is too weak to play here (${chartTxt}). Folding was about ${bbs(d.evLoss, bb)} better.`
+            : `You limped (just called the big blind) ${posTxt} with ${d.handClass}. ${d.best.label} wins the blinds straight away about ${pct(d.best.foldPct ?? 0)} of the time and takes the lead when called; it was worth about ${bbs(d.evLoss, bb)} more than limping.`,
+      };
+    }
+    if (hero === 'fold' && raiseOpt && best !== 'call') {
+      return {
+        kind: 'missed-open',
+        text: `You folded ${d.handClass} ${posTxt}, but ${chartTxt ? `${chartTxt} and it includes this hand` : 'it is a profitable open here'}. ${d.best.label} wins the blinds about ${pct(d.best.foldPct ?? 0)} of the time and has ${pct(d.best.eqWhenCalled ?? 0)} equity when called: worth about +${bbs(d.best.ev, bb)}.`,
+      };
+    }
+    if ((hero === 'raise' || hero === 'bet') && best === 'fold') {
+      const mine = d.options.find((o) => o.kind === hero && o.to === d.heroAction.amount);
+      return {
+        kind: 'loose-open',
+        text: `${d.handClass} is too weak to open ${posTxt} (${chartTxt}). The raise only wins the blinds about ${pct(mine?.foldPct ?? 0)} of the time, and when called you have about ${pct(mine?.eqWhenCalled ?? 0)} equity: it loses about ${bbs(d.evLoss, bb)} on average.`,
+      };
+    }
+  }
 
   if (!sameKind && lossBB >= threshold) {
     if (hero === 'call' && best === 'fold') {
-      lines.push(
-        `You called ${d.toCall} into a pot of ${d.pot} ${where}. That price needs ${pct(d.need)} equity, but your ${d.handName} had about ${pct(d.equity)} against ${villain}'s likely range (${range}).`,
-        `On average the call loses about ${chips(-opt('call')!.ev)} chips (${bbs(-opt('call')!.ev, bb)}); folding loses nothing more.`,
-      );
-      return { kind: 'call-no-odds', text: lines.join(' ') };
+      return {
+        kind: 'call-no-odds',
+        text: `You called ${d.toCall} into a pot of ${d.pot} ${where}. That price needs ${pct(d.need)} equity; your ${d.handName} had about ${pct(d.equity)} ${against(d)}.${realisedNote} On average the call loses about ${chips(-call!.ev)} chips (${bbs(-call!.ev, bb)}); folding loses nothing more.`,
+      };
     }
-    if (hero === 'fold' && (best === 'call' || best === 'raise')) {
-      lines.push(
-        `You folded ${where} when calling ${d.toCall} into ${d.pot} needed only ${pct(d.need)} equity (pot odds ${((1 - d.need) / d.need).toFixed(1)} : 1).`,
-        (() => {
-          const call = opt('call');
-          const head = `Your ${d.handName} had about ${pct(d.equity)} against ${villain}'s likely range (${range}), so`;
-          if (call && call.ev > 0)
-            return `${head} a call was worth about +${chips(call.ev)} chips (${bbs(call.ev, bb)})${best !== 'call' ? `, and ${d.best.label.toLowerCase()} about +${chips(d.best.ev)}` : ''}.`;
-          return `${head} ${d.best.label.toLowerCase()} was worth about +${chips(d.best.ev)} chips (${bbs(d.best.ev, bb)}).`;
-        })(),
-      );
-      return { kind: 'fold-with-odds', text: lines.join(' ') };
+    if (hero === 'fold' && call && call.ev / bb >= threshold) {
+      return {
+        kind: 'fold-with-odds',
+        text: `You folded ${where} when calling ${d.toCall} into ${d.pot} needed only ${pct(d.need)} equity (pot odds ${((1 - d.need) / d.need).toFixed(1)} : 1). Your ${d.handName} had about ${pct(d.equity)} ${against(d)}, so a call was worth about +${chips(call.ev)} chips (${bbs(call.ev, bb)})${best !== 'call' ? `, and ${d.best.label.toLowerCase()} about +${chips(d.best.ev)}` : ''}.`,
+      };
     }
-    if (hero === 'check' && (best === 'bet' || best === 'raise') && d.equity >= 0.55) {
+    if (hero === 'fold' && pre && (best === 'raise' || best === 'bet') && d.best.ev / bb >= threshold) {
+      return {
+        kind: 'fold-with-odds',
+        text: `You folded ${d.handClass} ${where}, a hand strong enough to re-raise: ${d.best.label.toLowerCase()} makes ${villain} fold about ${pct(d.best.foldPct ?? 0)} of the time and has ${pct(d.best.eqWhenCalled ?? 0)} equity when called, worth about +${bbs(d.best.ev, bb)}.`,
+      };
+    }
+    if (hero === 'check' && (best === 'bet' || best === 'raise') && !pre) {
       const o = d.best;
-      lines.push(
-        `You checked ${where} with ${d.handName} (about ${pct(d.equity)} against ${villain}'s range: ${range}).`,
-        `${o.label} would be called often enough by worse hands${o.foldPct !== undefined ? ` (everyone folds about ${pct(o.foldPct)} of the time; when called you have ${pct(o.eqWhenCalled ?? 0)})` : ''}, earning about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more than checking.`,
-      );
-      return { kind: d.equity >= 0.5 ? 'missed-value' : 'missed-value', text: lines.join(' ') };
+      if (d.equity >= 0.55)
+        return {
+          kind: 'missed-value',
+          text: `You checked ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). ${o.label} gets called by worse hands often enough${o.foldPct !== undefined ? ` (everyone folds about ${pct(o.foldPct)} of the time; when called you have ${pct(o.eqWhenCalled ?? 0)})` : ''}, earning about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more than checking.`,
+        };
+      if (d.hadInitiative && d.street !== 'river' && d.nOpp === 1)
+        return {
+          kind: 'missed-bet',
+          text: `You raised last on the previous street but checked ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). ${o.label} makes ${villain} fold about ${pct(o.foldPct ?? 0)} of the time${o.eqWhenCalled !== undefined ? ` and keeps ${pct(o.eqWhenCalled)} equity when called` : ''}: a continuation bet was worth about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more than checking.`,
+        };
     }
-    if ((hero === 'bet' || hero === 'raise') && (best === 'check' || best === 'fold' || best === 'call')) {
+    if ((hero === 'bet' || hero === 'raise') && (best === 'check' || best === 'fold' || best === 'call') && !pre) {
       const mine = d.options.find((o) => o.kind === hero && o.to === d.heroAction.amount);
-      if (d.equity < 0.4) {
-        lines.push(
-          `You ${actionLabel(d.heroAction)} ${where} with ${d.handName} (about ${pct(d.equity)} against ${villain}'s range: ${range}).`,
-          mine?.foldPct !== undefined
-            ? `As a bluff it needs folds, but ${villain}'s range only folds about ${pct(mine.foldPct)} of the time to that size, and when called you have ${pct(mine.eqWhenCalled ?? 0)}.`
-            : '',
-          `${d.best.label} was about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better.`,
-        );
-        return { kind: 'bad-bluff', text: lines.filter(Boolean).join(' ') };
-      }
-      lines.push(
-        `You ${actionLabel(d.heroAction)} ${where} with ${d.handName} (${pct(d.equity)} against ${villain}'s range: ${range}).`,
-        `Worse hands mostly fold to that and better hands continue${mine?.eqWhenCalled !== undefined ? ` (when called you have only ${pct(mine.eqWhenCalled)})` : ''}; ${d.best.label.toLowerCase()} was about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better.`,
-      );
-      return { kind: 'overplayed', text: lines.join(' ') };
+      if (d.equity < 0.4)
+        return {
+          kind: 'bad-bluff',
+          text: `You ${pastLabel(d.heroAction)} ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). As a bluff it needs folds, but that range folds only about ${pct(mine?.foldPct ?? 0)} of the time to this size${mine?.eqWhenCalled !== undefined ? `, and when called you have ${pct(mine.eqWhenCalled)}` : ''}. ${d.best.label} was about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better.`,
+        };
+      return {
+        kind: 'overplayed',
+        text: `You ${pastLabel(d.heroAction)} ${where} with ${d.handName} (${pct(d.equity)} ${against(d)}). Worse hands mostly fold to that and better hands continue${mine?.eqWhenCalled !== undefined ? ` (when called you have only ${pct(mine.eqWhenCalled)})` : ''}; ${d.best.label.toLowerCase()} was about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better.`,
+      };
     }
     if (hero === 'call' && (best === 'raise' || best === 'bet') && d.equity >= 0.72) {
-      lines.push(
-        `You called ${where} with ${d.handName}, which had about ${pct(d.equity)} against ${villain}'s range (${range}).`,
-        `${d.best.label} builds the pot while you are ahead and earns about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more.`,
-      );
-      return { kind: 'missed-raise', text: lines.join(' ') };
+      return {
+        kind: 'missed-raise',
+        text: `You called ${where} with ${d.handName}, which had about ${pct(d.equity)} ${against(d)}. ${d.best.label} builds the pot while you are ahead and earns about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more.`,
+      };
     }
   }
-  if (sameKind && (hero === 'bet' || hero === 'raise') && lossBB >= threshold && d.best.to !== d.heroAction.amount) {
-    lines.push(
-      `Betting was right ${where}, but the size cost value: ${d.best.label.toLowerCase()} rates about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better than your ${actionLabel(d.heroAction)} against ${villain}'s range (${range}).`,
-    );
-    return { kind: 'sizing', text: lines.join(' ') };
+  if (sameKind && (hero === 'bet' || hero === 'raise') && !pre && lossBB >= threshold && d.best.to !== d.heroAction.amount) {
+    return {
+      kind: 'sizing',
+      text: `Betting was right ${where}, but the size cost value: ${d.best.label.toLowerCase()} rates about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better than your ${pastLabel(d.heroAction)} ${against(d)}.`,
+    };
   }
-  // good decisions: chosen option clearly better than the alternatives
+  // good decisions: the chosen option clearly better than the alternatives
   const others = d.options.filter((o) => o.kind !== hero);
-  if (sameKind && others.length) {
+  if (sameKind && others.length && !(pre && d.unopened)) {
     const second = others.reduce((a, b) => (b.ev > a.ev ? b : a), others[0]);
     const margin = d.best.ev - second.ev;
     if (margin / bb >= Math.max(2, (0.1 * d.pot) / bb)) {
-      if (hero === 'fold') {
-        const call = opt('call');
+      if (hero === 'fold' && call && call.ev < 0)
         return {
           kind: 'good-fold',
-          text: `Good fold ${where}: calling ${d.toCall} needed ${pct(d.need)} equity and your ${d.handName} had only about ${pct(d.equity)} against ${villain}'s range (${range}). The call would have lost about ${chips(-(call?.ev ?? 0))} chips.`,
+          text: `Good fold ${where}: calling ${d.toCall} needed ${pct(d.need)} equity and your ${d.handName} had only about ${pct(d.equity)} ${against(d)}. The call would have lost about ${chips(-call.ev)} chips.`,
         };
-      }
       if (hero === 'call')
         return {
           kind: 'good-call',
-          text: `Good call ${where}: you needed ${pct(d.need)} and had about ${pct(d.equity)} with ${d.handName} against ${villain}'s range (${range}), worth about +${chips(d.heroEV)} chips compared with folding.`,
+          text: `Good call ${where}: you needed ${pct(d.need)} and had about ${pct(d.equity)} with ${d.handName} ${against(d)}, worth about +${chips(d.heroEV)} chips compared with folding.`,
         };
-      if (hero === 'bet' || hero === 'raise')
+      if ((hero === 'bet' || hero === 'raise') && !pre)
         return {
           kind: d.equity >= 0.5 ? 'good-value' : 'good-bluff',
           text:
             d.equity >= 0.5
-              ? `Good value ${hero} ${where}: ${d.handName} had about ${pct(d.equity)} against ${villain}'s range, and betting earned about ${chips(margin)} chips more than ${second.label.toLowerCase()}.`
-              : `Good bluff ${where}: with ${d.handName} (${pct(d.equity)}) a bet makes ${villain}'s range fold often enough to be worth about ${chips(margin)} chips more than ${second.label.toLowerCase()}.`,
+              ? `Good value ${hero} ${where}: ${d.handName} had about ${pct(d.equity)} ${against(d)}, and betting earned about ${chips(margin)} chips more than ${second.label.toLowerCase()}.`
+              : `Good bluff ${where}: with ${d.handName} (${pct(d.equity)}) the bet makes ${villain} fold about ${pct(d.best.foldPct ?? 0)} of the time, worth about ${chips(margin)} chips more than ${second.label.toLowerCase()}.`,
         };
     }
   }
@@ -382,7 +427,7 @@ export function buildReport(inp: ReportInput): MatchReport {
     nets.push({ handId: h.handId, net, hole: p.hole });
     const models: Record<string, OpponentModel> = {};
     const st = computeStats(running);
-    for (const q of h.players) if (q.id !== heroId) models[q.id] = toModel(st[q.id]);
+    for (const q of h.players) if (q.id !== heroId) models[q.id] = toModel(st[q.id], h.players.length);
 
     // all-in luck: heads-up all-ins before the river with both hands tabled
     if (h.runout && h.showdown) {
@@ -445,7 +490,12 @@ export function buildReport(inp: ReportInput): MatchReport {
         statRow('wtsd', rate(hs.wtsd), hs.wtsd.opp, R.wtsd, 'pct'),
       ]
     : [];
-  const OPEN_REF: Record<Position, string> = { UTG: '15–18%', HJ: '19–23%', CO: '25–30%', BTN: '40–50%', SB: '35–45%', BB: 'defend 35–50% vs a steal' };
+  const OPEN_REF: Record<Position, string> =
+    np <= 2
+      ? { UTG: '—', HJ: '—', CO: '—', BTN: '—', SB: 'open 70–85%', BB: 'defend 55–70% vs a 2.5x open' }
+      : np <= 4
+        ? { UTG: '—', HJ: '—', CO: '30–35%', BTN: '45–55%', SB: '40–50%', BB: 'defend 40–55% vs a steal' }
+        : { UTG: '15–18%', HJ: '19–23%', CO: '25–30%', BTN: '40–50%', SB: '35–45%', BB: 'defend 35–50% vs a steal' };
   const byPosition = (['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'] as Position[])
     .map((pos) => {
       const b = hs?.byPosition[pos];
@@ -476,7 +526,7 @@ export function buildReport(inp: ReportInput): MatchReport {
         position: positionOf(h.players.length, h.buttonPi, pi),
         net: h.won[pi] - h.players[pi].totalBet,
         situation: situation(h, pi, worst.d),
-        did: `You ${worst.note.heroLabel} ${streetName(worst.note.street)}.`,
+        did: `You ${worst.note.heroPast} ${streetName(worst.note.street)}.`,
         better: `A strong player would ${worst.note.bestLabel.toLowerCase()}.`,
         why: ms.map((m) => `${m.note.street[0].toUpperCase()}${m.note.street.slice(1)}: ${m.note.text}`),
         evLossBB: loss / bb,
@@ -487,7 +537,12 @@ export function buildReport(inp: ReportInput): MatchReport {
     .sort((a, b) => b.note.heroEV - b.note.bestEV - (a.note.heroEV - a.note.bestEV) || b.note.pot - a.note.pot)
     .slice(0, 4)
     .map((g) => ({ title: `Hand ${g.note.handId}: ${GOOD_TITLE[g.note.kind as GoodKind]}`, text: g.note.text }));
-  for (const s of statRows) if (s.verdict === 'ok' && wellPlayed.length < 6) wellPlayed.push({ title: s.label, text: s.text });
+  let statPraise = 0;
+  for (const s of statRows)
+    if (s.verdict === 'ok' && ['vpip', 'pfr', 'threeBet', 'cbet'].includes(s.key) && statPraise < 2 && wellPlayed.length < 6) {
+      wellPlayed.push({ title: s.label, text: s.text });
+      statPraise++;
+    }
 
   // strategies: exploits of the bots' observed tendencies and hero habits
   const strategies: Tip[] = [];
@@ -495,15 +550,15 @@ export function buildReport(inp: ReportInput): MatchReport {
   for (const [id, s] of Object.entries(stats)) {
     if (id === heroId) continue;
     const name = hands.find((h) => h.players.some((p) => p.id === id))!.players.find((p) => p.id === id)!.name;
-    if (s.foldToCbet.opp >= 4 && rate(s.foldToCbet) >= 0.6)
+    if (s.foldToCbet.opp >= 10 && rate(s.foldToCbet) >= 0.65)
       exploits.push({ title: `C-bet more against ${name}`, text: `${name} folded to ${pct(rate(s.foldToCbet))} of flop continuation bets (${s.foldToCbet.n} of ${s.foldToCbet.opp}). A small bet (about ⅓ pot) only needs to work 25% of the time to profit, so bet the flop with almost any hand after raising preflop.` });
-    if (s.wtsd.opp >= 6 && rate(s.wtsd) >= 0.45)
+    if (s.wtsd.opp >= 15 && rate(s.wtsd) >= 0.45 && rate(s.vpip) >= 0.3)
       exploits.push({ title: `Value bet thinner against ${name}`, text: `${name} went to showdown ${pct(rate(s.wtsd))} of the time after seeing a flop (${s.wtsd.n} of ${s.wtsd.opp}). Bet top pair and even second pair for value on every street, and don't bluff: they won't fold.` });
-    if (s.vpip.opp >= 15 && rate(s.vpip) <= 0.16)
+    if (s.vpip.opp >= 25 && rate(s.vpip) <= 0.16)
       exploits.push({ title: `Respect ${name}'s raises, steal their blinds`, text: `${name} played only ${pct(rate(s.vpip))} of hands. When they raise or re-raise they usually have a strong hand, so fold medium pairs and weak aces; but raise their blinds often, since they defend rarely.` });
-    if (s.threeBet.opp >= 8 && rate(s.threeBet) >= 0.12)
+    if (s.threeBet.opp >= 15 && rate(s.threeBet) >= 0.12)
       exploits.push({ title: `Fight back against ${name}'s re-raises`, text: `${name} 3-bet ${pct(rate(s.threeBet))} of the time (${s.threeBet.n} of ${s.threeBet.opp}), far above the usual 6–10%. Call more of their re-raises with good hands like suited broadways and pairs, and 4-bet your premiums.` });
-    if (s.foldTo3Bet.opp >= 4 && rate(s.foldTo3Bet) >= 0.7)
+    if (s.foldTo3Bet.opp >= 8 && rate(s.foldTo3Bet) >= 0.7)
       exploits.push({ title: `Re-raise ${name} light`, text: `${name} folded to ${pct(rate(s.foldTo3Bet))} of re-raises (${s.foldTo3Bet.n} of ${s.foldTo3Bet.opp}). A 3-bet to about 3× their open wins the pot immediately most of the time, so 3-bet them with suited aces and suited connectors too.` });
   }
   if (btnOpen.opp >= 3 && btnOpen.n / btnOpen.opp < 0.35)
@@ -518,7 +573,8 @@ export function buildReport(inp: ReportInput): MatchReport {
     strategies.push({ title: 'Bet your strong hands', text: `${valueMisses.length} times you checked a hand that was ahead of your opponent's range. Betting gets value from worse hands and protects your equity; checking gives free cards.` });
 
   // grade + focus
-  const grade = evLossBB100 < 6 ? 'A' : evLossBB100 < 14 ? 'B' : evLossBB100 < 28 ? 'C' : evLossBB100 < 50 ? 'D' : 'F';
+  // too few hands for a fair grade
+  const grade = nHands < 15 ? '–' : evLossBB100 < 6 ? 'A' : evLossBB100 < 14 ? 'B' : evLossBB100 < 28 ? 'C' : evLossBB100 < 50 ? 'D' : 'F';
   const byKind = new Map<string, number>();
   for (const m of mistakes) byKind.set(m.note.kind!, (byKind.get(m.note.kind!) ?? 0) + m.note.evLoss);
   const focus: string[] = [...byKind.entries()]
@@ -529,7 +585,12 @@ export function buildReport(inp: ReportInput): MatchReport {
   if (leak && focus.length < 3) focus.push(`${leak.label}: ${leak.text}`);
   if (loosOpens >= 3 && focus.length < 3) focus.push(`Tighten your opening ranges: ${loosOpens} of your opens were hands outside a standard chart for that position.`);
   if (missedOpens >= 3 && focus.length < 3) focus.push(`Open more hands: ${missedOpens} times you folded a hand that is a standard open from that position.`);
-  if (!focus.length) focus.push('Keep doing what you did: no costly patterns showed up. Try the Expert table next for a tougher test.');
+  if (!focus.length)
+    focus.push(
+      nHands < 15
+        ? `Play a longer match: ${nHands} hand${nHands === 1 ? '' : 's'} are too few to spot patterns in your play.`
+        : 'Keep doing what you did: no costly patterns showed up. Try the Expert table next for a tougher test.',
+    );
 
   const luck = allInActual - allInEV;
   const summary =
@@ -579,6 +640,10 @@ const KIND_TITLE: Record<MistakeKind, string> = {
   'missed-raise': 'Should have raised for value',
   sizing: 'Bet size cost value',
   'passive-allin': 'Passive with a big hand',
+  'missed-bet': 'Missed a continuation bet',
+  limp: 'Limped instead of raising or folding',
+  'missed-open': 'Folded a profitable open',
+  'loose-open': 'Opened a hand that is too weak',
 };
 const GOOD_TITLE: Record<GoodKind, string> = {
   'good-fold': 'disciplined fold',
@@ -595,6 +660,10 @@ const FOCUS_TEXT: Record<MistakeKind, string> = {
   'missed-raise': 'Raise your very strong hands instead of just calling',
   sizing: 'Choose bet sizes deliberately: bigger with strong hands on wet boards, smaller on dry boards',
   'passive-allin': 'Get your chips in with your strongest hands',
+  'missed-bet': 'After raising preflop, keep betting the flop when your opponent is likely to fold',
+  limp: 'When you are first in, raise or fold — limping gives up the blinds and the lead',
+  'missed-open': 'Open every hand in the standard range for your position, especially late',
+  'loose-open': 'Fold weak hands from early position; the players behind you will often have you beaten',
 };
 
 function toNote(d: DecisionAnalysis, action: Action, handId: number): DecisionNote {
@@ -611,6 +680,7 @@ function toNote(d: DecisionAnalysis, action: Action, handId: number): DecisionNo
     equity: d.equity,
     villainName: d.villainName,
     heroLabel: actionLabel(action),
+    heroPast: pastLabel(action),
     bestLabel: d.best.label,
     evLoss: d.evLoss,
     heroEV: d.heroEV,
@@ -629,7 +699,7 @@ export function reviewHand(h: HandState, heroId: string, earlier: readonly HandS
   if (pi < 0) return [];
   const st = computeStats(earlier);
   const models: Record<string, OpponentModel> = {};
-  for (const q of h.players) if (q.id !== heroId) models[q.id] = toModel(st[q.id]);
+  for (const q of h.players) if (q.id !== heroId) models[q.id] = toModel(st[q.id], h.players.length);
   return decisionsOf(h, pi).map((dp) =>
     toNote(analyzeDecision(dp.view, dp.action, dp.actionIndex, models, h.handId * 31 + dp.actionIndex), dp.action, h.handId),
   );
@@ -638,15 +708,28 @@ export function reviewHand(h: HandState, heroId: string, earlier: readonly HandS
 function situation(h: HandState, pi: number, d: DecisionAnalysis): string {
   const p = h.players[pi];
   const pos = positionOf(h.players.length, h.buttonPi, pi);
-  const pre = h.actions.filter((a) => a.street === 'preflop');
-  const opener = pre.find((a) => a.type === 'raise');
   const bb = h.config.bigBlind;
-  let s = `You were in the ${pos} with ${cardsToString(p.hole)} and ${Math.round(p.startStack / bb)} BB. `;
-  if (opener) {
-    const who = opener.pi === pi ? 'You' : h.players[opener.pi].name;
-    s += `${who} opened to ${opener.to}${pre.filter((a) => a.type === 'raise').length > 1 ? ' and there was a re-raise' : ''}. `;
-  } else s += 'Nobody raised preflop. ';
-  if (d.board.length) s += `Board when you acted: ${cardsToString(d.board)}. Pot ${d.pot}${d.toCall ? `, ${d.toCall} to call` : ''}.`;
-  else s += `Pot ${d.pot}${d.toCall ? `, ${d.toCall} to call` : ''}.`;
+  const who = (k: number) => (k === pi ? 'you' : h.players[k].name);
+  // the preflop action that mattered, in order (folds left out)
+  const parts: string[] = [];
+  let raises = 0;
+  for (const a of h.actions) {
+    if (a.street !== 'preflop' || a.type === 'fold' || a.type === 'check') continue;
+    if (a.type === 'raise' || a.type === 'bet') {
+      raises++;
+      const verb = a.allIn ? `went all-in for ${a.to}` : raises === 1 ? `raised to ${a.to}` : `re-raised to ${a.to}`;
+      parts.push(`${who(a.pi)} ${verb}`);
+    } else parts.push(`${who(a.pi)} ${raises === 0 ? 'limped' : 'called'}`);
+  }
+  let s = `You were in the ${pos} with ${pretty(p.hole)} and ${Math.round(p.startStack / bb)} BB. `;
+  s += parts.length ? `Preflop: ${parts.join(', ')}. ` : 'Nobody raised preflop. ';
+  if (s.includes('Preflop: you')) s = s.replace('Preflop: you', 'Preflop: You');
+  if (d.board.length) s += `Board when you acted: ${pretty(d.board)}. `;
+  s += `Pot ${d.pot}${d.toCall ? `, ${d.toCall} to call` : ''}${d.nOpp > 1 ? `, ${d.nOpp} opponents in the hand` : ''}.`;
   return s;
+}
+
+/** cards with suit symbols, e.g. "Q♥ 9♥" */
+function pretty(cs: readonly Card[]): string {
+  return cs.map((c) => cardToString(c).replace('T', '10').replace(/[cdhs]$/, (x) => ({ c: '♣', d: '♦', h: '♥', s: '♠' })[x as 'c'])).join(' ');
 }

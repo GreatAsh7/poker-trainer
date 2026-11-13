@@ -121,10 +121,15 @@ function likelihood(
       const frac = rec.potBefore > 0 ? rec.added / rec.potBefore : 1;
       const big = frac > 0.8 || rec.allIn;
       let value: number;
-      if (raise) value = s >= 0.9 ? 1 : s >= 0.78 ? 0.55 : s >= 0.6 ? 0.18 : 0.05;
-      else value = s >= 0.85 ? 1 : s >= 0.7 ? (big ? 0.55 : 0.8) : s >= 0.55 ? (big ? 0.2 : 0.45) : s >= 0.4 ? 0.2 : 0.08;
-      // aggressive players also bet their medium hands more often (not only bluffs)
-      if (s < 0.85) value = Math.min(1, value * clamp(aggRatio * Math.sqrt(tight), 0.4, 1.8));
+      if (raise) {
+        // raises are value-heavy, river raises most of all
+        value = river ? (s >= 0.9 ? 1 : s >= 0.8 ? 0.3 : s >= 0.65 ? 0.06 : 0.02) : s >= 0.9 ? 1 : s >= 0.78 ? 0.45 : s >= 0.6 ? 0.12 : 0.04;
+        if (s < 0.9) value = Math.min(1, value * clamp(aggRatio * Math.sqrt(tight), 0.5, 1.4));
+      } else {
+        value = s >= 0.85 ? 1 : s >= 0.7 ? (big ? 0.55 : 0.8) : s >= 0.55 ? (big ? 0.2 : 0.45) : s >= 0.4 ? 0.2 : 0.08;
+        // aggressive players also bet their medium hands more often (not only bluffs)
+        if (s < 0.85) value = Math.min(1, value * clamp(aggRatio * Math.sqrt(tight), 0.4, 1.8));
+      }
       const semi = river ? 0 : d >= 1 ? (raise ? 0.4 : 0.6) : d >= 0.5 ? (raise ? 0.15 : 0.3) : 0;
       const bluff = raise ? bluffiness * 0.35 : bluffiness;
 
@@ -169,6 +174,7 @@ export function estimateRange(view: PlayerView, pi: number, model: OpponentModel
     const b = boardAt(view.board, a.street);
     if (b.length < 3 || reading <= 0) continue;
     const t = boardTable(b);
+    const checkRaise = a.type === 'raise' && view.actions.some((x) => x.pi === pi && x.street === a.street && x.type === 'check');
     for (let i = 0; i < NUM_COMBOS; i++) {
       if (r[i] <= 0) continue;
       const s = t.strength[i];
@@ -176,7 +182,9 @@ export function estimateRange(view: PlayerView, pi: number, model: OpponentModel
         r[i] = 0;
         continue;
       }
-      const l = likelihood(a, s, t.draw[i], a.street, model, typicalVpip);
+      let l = likelihood(a, s, t.draw[i], a.street, model, typicalVpip);
+      // a check-raise is stronger still than a raise
+      if (checkRaise && s < 0.9) l *= 0.5;
       r[i] *= reading === 1 ? l : Math.pow(l, reading);
     }
   }

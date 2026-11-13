@@ -41,7 +41,7 @@ for (let hnd = 0; hnd < N; hnd++) {
     const pi = h.toAct;
     const v = viewFor(h, pi);
     const models: Record<string, ReturnType<typeof toModel>> = {};
-    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(statsLive[p.id]);
+    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(statsLive[p.id], v.players.length);
     const t0 = performance.now();
     const d = decide({ view: v, persona: PERSONALITIES[order[pi].style], models, rng });
     times.push(performance.now() - t0);

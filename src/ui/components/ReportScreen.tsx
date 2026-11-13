@@ -9,7 +9,8 @@ interface Props {
   /** replay is available only for hands of the match just played */
   canReplay: (handId: number) => boolean;
   onReplay: (handId: number) => void;
-  onPlayAgain: () => void;
+  /** undefined when there is no match to repeat (report opened from setup) */
+  onPlayAgain?: () => void;
   onSettings: () => void;
 }
 
@@ -27,6 +28,7 @@ function Cards({ cards, size = 'sm' }: { cards: Card[]; size?: 'sm' | 'md' }) {
 }
 
 const GRADE_TEXT: Record<string, string> = {
+  '–': 'Not enough hands to grade — play at least 15',
   A: 'Excellent — very few costly decisions',
   B: 'Good — a few leaks to tidy up',
   C: 'Fair — some recurring mistakes',
@@ -50,18 +52,21 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
               <span className={r.net > 0 ? 'pos' : r.net < 0 ? 'neg' : ''}>{signed(r.netBB)} BB</span>
               <span className="report__sub">
                 {' '}
-                over {r.hands} hands · {signed(r.bb100)} BB/100
+                over {r.hands} hand{r.hands === 1 ? '' : 's'}
+                {r.hands >= 15 ? ` · ${signed(r.bb100)} BB/100` : ''}
               </span>
             </h1>
             <p className="report__grade-text">{GRADE_TEXT[r.grade]}</p>
             <p className="report__summary">{r.summary}</p>
           </div>
           <div className="report__actions">
-            <button className="btn btn--primary" onClick={onPlayAgain} data-testid="play-again">
-              Play again
-            </button>
-            <button className="btn" onClick={onSettings}>
-              New match settings
+            {onPlayAgain && (
+              <button className="btn btn--primary" onClick={onPlayAgain} data-testid="play-again">
+                Play again (same settings)
+              </button>
+            )}
+            <button className={`btn ${onPlayAgain ? '' : 'btn--primary'}`} onClick={onSettings}>
+              {onPlayAgain ? 'Change settings' : 'Back to setup'}
             </button>
           </div>
         </header>
@@ -74,14 +79,32 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
               ['progress', `Progress (${history.length})`],
             ] as const
           ).map(([k, label]) => (
-            <button key={k} role="tab" aria-selected={tab === k} className={`report__tab ${tab === k ? 'report__tab--on' : ''}`} onClick={() => setTab(k)}>
+            <button
+              key={k}
+              id={`tab-${k}`}
+              role="tab"
+              aria-selected={tab === k}
+              aria-controls={`panel-${k}`}
+              tabIndex={tab === k ? 0 : -1}
+              className={`report__tab ${tab === k ? 'report__tab--on' : ''}`}
+              onClick={() => setTab(k)}
+              onKeyDown={(e) => {
+                const keys = ['report', 'hands', 'progress'] as const;
+                const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+                if (!d) return;
+                e.preventDefault();
+                const n = keys[(keys.indexOf(k) + d + keys.length) % keys.length];
+                setTab(n);
+                document.getElementById(`tab-${n}`)?.focus();
+              }}
+            >
               {label}
             </button>
           ))}
         </nav>
 
         {tab === 'report' && (
-          <>
+          <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" className="report__panel">
             <div className="report__grid">
               <section className="rcard">
                 <h2>Your plan for next match</h2>
@@ -135,7 +158,15 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
 
             <section className="rcard">
               <h2>Key hands</h2>
-              {r.keyHands.length === 0 && <p className="muted">No costly decisions were found this match. Nice work.</p>}
+              {r.keyHands.length === 0 && (
+                <p className="muted">
+                  {r.hands < 15
+                    ? `Only ${r.hands} hand${r.hands === 1 ? '' : 's'} — too few for key hands.`
+                    : r.net < 0
+                      ? 'No costly decisions were found: the losses came from the cards, not the choices.'
+                      : 'No costly decisions were found this match. Nice work.'}
+                </p>
+              )}
               <div className="keyhands">
                 {r.keyHands.map((k) => (
                   <article key={k.handId} className="keyhand">
@@ -230,9 +261,9 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
                     {r.byPosition.map((p) => (
                       <tr key={p.pos}>
                         <td>{p.pos}</td>
-                        <td>{p.hands}</td>
-                        <td>{pct(p.vpip)}</td>
-                        <td>{pct(p.pfr)}</td>
+                        <td>{p.hands}{p.hands < 5 && <span className="muted"> (small)</span>}</td>
+                        <td className={p.hands < 5 ? 'muted' : ''}>{pct(p.vpip)}</td>
+                        <td className={p.hands < 5 ? 'muted' : ''}>{pct(p.pfr)}</td>
                         <td className="muted">{p.refOpen}</td>
                       </tr>
                     ))}
@@ -240,11 +271,19 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
                 </table>
               )}
             </section>
-          </>
+          </div>
         )}
 
-        {tab === 'hands' && <HandReview report={r} canReplay={canReplay} onReplay={onReplay} />}
-        {tab === 'progress' && <Progress history={history} current={r.id} />}
+        {tab === 'hands' && (
+          <div role="tabpanel" id="panel-hands" aria-labelledby="tab-hands">
+            <HandReview report={r} canReplay={canReplay} onReplay={onReplay} />
+          </div>
+        )}
+        {tab === 'progress' && (
+          <div role="tabpanel" id="panel-progress" aria-labelledby="tab-progress">
+            <Progress history={history} current={r.id} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -375,14 +414,17 @@ function Progress({ history, current }: { history: MatchReport[]; current: strin
   return (
     <section className="rcard">
       <h2>Progress</h2>
-      <p className="muted">Costly decisions per 100 hands (lower is better) and grade, for your last {pts.length} matches.</p>
+      <p className="muted">Costly decisions per 100 hands (lower is better), with each match's grade and length, for your last {pts.length} matches.</p>
       <svg className="progress" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Costly decisions per 100 hands over recent matches">
+        <text x="4" y="14" className="progress__axis">BB lost / 100</text>
+        <text x="4" y={y(0) + 4} className="progress__axis">0</text>
+        <text x="4" y={y(maxL) + 4} className="progress__axis">{maxL.toFixed(0)}</text>
         <polyline fill="none" stroke="var(--gold)" strokeWidth="2.5" points={loss.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />
         {pts.map((p, i) => (
           <g key={p.id}>
             <circle cx={x(i)} cy={y(loss[i])} r={p.id === current ? 6 : 4} fill={p.id === current ? 'var(--gold-2)' : 'var(--gold)'} />
             <text x={x(i)} y={H - 8} textAnchor="middle" className="progress__grade">
-              {p.grade}
+              {p.grade} · {p.hands}h
             </text>
             <text x={x(i)} y={y(loss[i]) - 10} textAnchor="middle" className="progress__val">
               {loss[i].toFixed(0)}

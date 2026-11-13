@@ -53,8 +53,10 @@ export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose, loadNo
   }, [playing, step, steps.length]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
       if (e.key === 'ArrowRight') setStep((s) => Math.min(s + 1, steps.length - 1));
       else if (e.key === 'ArrowLeft') setStep((s) => Math.max(s - 1, 0));
+      else if (e.key === ' ' && t?.tagName === 'BUTTON') return; // let Space press the focused button
       else if (e.key === ' ') {
         e.preventDefault();
         setPlaying((p) => !p);
@@ -74,7 +76,8 @@ export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose, loadNo
   }
   return (
     <Modal title={`Replay · Hand ${hand.handId}`} onClose={onClose} wide>
-      <div className="replay">
+      <div className={`replay ${loadNotes && heroPi >= 0 ? 'replay--notes' : ''}`}>
+        <div className="replay__main">
         <div className="replay__table">
           <MotionConfig reducedMotion="user">
             <Stage>
@@ -104,6 +107,7 @@ export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose, loadNo
           <button className="icon-btn" onClick={() => { setPlaying(false); setStep(steps.length - 1); }} aria-label="Last step">⏭</button>
           <span className="replay__last">{lines[lines.length - 1] ?? 'Blinds posted'}</span>
           <span className="replay__count">{step + 1} / {steps.length}</span>
+        </div>
         </div>
         {loadNotes && heroPi >= 0 && (
           <div className="replay__notes">

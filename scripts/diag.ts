@@ -26,7 +26,7 @@ function play(bots: string[], ids: string[], deck: number[]): HandState {
     const pi = h.toAct;
     const v = viewFor(h, pi);
     const models: Record<string, ReturnType<typeof toModel>> = {};
-    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id]);
+    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id], v.players.length);
     const d = decide({ view: v, persona: PERSONALITIES[bots[pi] as Exclude<BotStyle, 'placeholder'>], models, rng });
     const key = `${h.street} ${d.reason?.replace(/[\d.]+%?/g, '#').slice(0, 60)}`;
     reasons[ids[pi]][key] = (reasons[ids[pi]][key] ?? 0) + 1;

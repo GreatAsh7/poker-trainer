@@ -112,16 +112,18 @@ export function SetupScreen({ onStart, initial, reportsCount = 0, onShowReports,
         >
           Deal me in
         </button>
-        {onShowSettings && (
-          <button className="btn-ghost setup__reports" onClick={onShowSettings}>
-            ⚙ Settings (speed, timer, sound)
-          </button>
-        )}
-        {reportsCount > 0 && onShowReports && (
-          <button className="btn-ghost setup__reports" onClick={onShowReports}>
-            View your last report and progress ({reportsCount} saved)
-          </button>
-        )}
+        <div className="setup__links">
+          {onShowSettings && (
+            <button className="btn-ghost" onClick={onShowSettings}>
+              ⚙ Settings
+            </button>
+          )}
+          {reportsCount > 0 && onShowReports && (
+            <button className="btn-ghost" onClick={onShowReports}>
+              View your last report ({reportsCount} saved)
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -152,11 +152,21 @@ function preflop(c: Ctx): BotDecision {
     if (raises === 0 && limpers === 0) {
       const base: Record<Pos, number> = { UTG: 0.13, HJ: 0.17, CO: 0.24, BTN: 0.38, SB: hu ? 0.62 : 0.5, BB: 0.5 };
       const pushPct = clamp(base[pos] * Math.pow(10 / Math.max(effBB, 2), 0.75) * Math.sqrt(p.rfiMult), 0.05, 0.95);
-      if (pct <= pushPct) return { action: raiseTo(c, c.la.maxTo), reason: `short stack (${effBB.toFixed(0)} BB): shove top ${(pushPct * 100).toFixed(0)}%` };
+      if (pct <= pushPct * (p.balanced ? 0.6 : 1)) return { action: raiseTo(c, c.la.maxTo), reason: `short stack (${effBB.toFixed(0)} BB): shove top ${(pushPct * 100).toFixed(0)}%` };
+      if (p.balanced && pct <= Math.min(0.95, pushPct * 1.6)) {
+        const d = openShove(c);
+        if (d) return d;
+      }
       if (p.limpLoose > 0 && c.rng() < p.limpLoose && pct < 0.6) return { action: checkOrCall(c), reason: 'station limp' };
       return { action: c.la.canCheck ? { type: 'check' } : fold(c), reason: 'short stack: fold' };
     }
-    return equityDecision(c, `short stack (${effBB.toFixed(0)} BB) facing action`, true);
+    const opener = lastRaiser >= 0 ? v.players[lastRaiser] : null;
+    if (p.balanced && opener && !opener.allIn && raises <= 2 && callersAfterRaise === 0 && limpers === 0 && c.voluntary.length === 1 && c.la.raiseType) {
+      const d = resteal(c, lastRaiser);
+      if (d) return d;
+    }
+    // flat-calling off a short stack realises little equity: demand a better price
+    return equityDecision(c, `short stack (${effBB.toFixed(0)} BB) facing action`, true, p.balanced && opener && !opener.allIn ? 0.7 : 1);
   }
 
   // ---------- unopened
@@ -198,6 +208,11 @@ function preflop(c: Ctx): BotDecision {
   if (p.balanced && effBB <= 40 && raises >= 1 && raises <= 2 && callersAfterRaise === 0 && limpers === 0 && c.voluntary.length === 1 && c.la.raiseType && lastRaiser >= 0) {
     const d = resteal(c, lastRaiser);
     if (d) return d;
+  }
+
+  // ---------- facing an all-in (or a raise we cannot re-raise): pure price decision
+  if (raises >= 1 && !iRaised && (!c.la.raiseType || (lastRaiser >= 0 && v.players[lastRaiser].allIn))) {
+    return equityDecision(c, 'facing an all-in', false);
   }
 
   // ---------- facing exactly one raise
@@ -360,6 +375,42 @@ function resteal(c: Ctx, villain: number): BotDecision | null {
   return null;
 }
 
+/**
+ * Open-shove decision from expected value: everyone still to act calls with the top part of
+ * their range, sized by the price they get and how loose they are; otherwise we win the blinds.
+ */
+function openShove(c: Ctx): BotDecision | null {
+  const v = c.v;
+  const me = v.players[c.me];
+  const pop = populationFor(v.players.length);
+  let pNoCall = 1;
+  let callShare = 0.3;
+  for (const pi of c.behind) {
+    const q = v.players[pi];
+    const risk = Math.min(me.stack + me.streetBet, q.stack + q.streetBet);
+    const need = (risk - q.streetBet) / Math.max(1, c.pot + 2 * risk - me.streetBet - q.streetBet);
+    const m = model(c, pi);
+    const loose = clamp(m.vpip / pop.vpip, 0.8, 1.7);
+    const share = clamp((0.1 + 1.6 * (0.6 - need)) * loose, 0.08, 0.9);
+    pNoCall *= 1 - share;
+    callShare = Math.max(callShare, share);
+  }
+  if (!c.behind.length) return null;
+  const top = new Float64Array(1326);
+  // the caller's range: the best callShare of all hands
+  const order = [...Array(1326).keys()].sort((a, b) => CLASS_PERCENTILE[COMBO_CLASS[a]] - CLASS_PERCENTILE[COMBO_CLASS[b]]);
+  for (let k = 0; k < Math.round(callShare * 1326); k++) top[order[k]] = 1;
+  const eqCalled = equityVsRanges(v.hole, v.board, [top], 500, c.rng).equity;
+  const risk = me.stack;
+  const ev = pNoCall * c.pot + (1 - pNoCall) * (eqCalled * (c.pot + 2 * risk - me.streetBet) - risk);
+  if (ev > 0.1 * c.bb)
+    return {
+      action: raiseTo(c, c.la.maxTo),
+      reason: `shove: called about ${Math.round((1 - pNoCall) * 100)}%, ${Math.round(eqCalled * 100)}% equity when called → EV ${(ev / c.bb).toFixed(1)} BB`,
+    };
+  return null;
+}
+
 /** Share of a range (by weight) made of hands ranked better than ours preflop (0 = best). */
 function rankInRange(c: Ctx, r: Range): number {
   const mine = CLASS_PERCENTILE[CLASS_INDEX.get(className(c.v.hole[0], c.v.hole[1]))!];
@@ -377,7 +428,7 @@ function rankInRange(c: Ctx, r: Range): number {
 /** Preflop raise; with short stacks, a raise that commits a third of the stack becomes a shove. */
 function commitRaise(c: Ctx, to: number, effBB: number): Action {
   const me = c.v.players[c.me];
-  if (effBB <= 25 && to - me.streetBet > (me.stack + me.streetBet) / 3) return raiseTo(c, c.la.maxTo);
+  if (effBB <= 25 && to - me.streetBet > (me.stack + me.streetBet) / 4) return raiseTo(c, c.la.maxTo);
   return raiseTo(c, to);
 }
 
@@ -402,7 +453,7 @@ function oppRanges(c: Ctx): Range[] {
 }
 
 /** Call or fold (or jam) purely on equity vs the estimated ranges and the price. */
-function equityDecision(c: Ctx, why: string, canJam: boolean): BotDecision {
+function equityDecision(c: Ctx, why: string, canJam: boolean, flatRealize = 1): BotDecision {
   const ranges = oppRanges(c);
   let eq = equityVsRanges(c.v.hole, c.v.board, ranges, Math.max(300, c.iters >> 1), c.rng).equity;
   // players still to act may wake up with a hand and overcall or re-raise
@@ -411,7 +462,7 @@ function equityDecision(c: Ctx, why: string, canJam: boolean): BotDecision {
   const tag = `${why}: equity ${(eq * 100).toFixed(0)}% vs needed ${(need * 100).toFixed(0)}%`;
   if (canJam && c.la.raiseType && eq > 0.62 && (c.v.street === 'preflop' ? c.voluntary.length === 1 : c.live.length === 1)) return { action: raiseTo(c, c.la.maxTo), reason: tag + ' → jam' };
   if (c.toCall === 0) return { action: { type: 'check' }, reason: tag };
-  if (eq >= need + c.p.callMargin) return { action: { type: 'call' }, reason: tag + ' → call' };
+  if (eq * (c.la.callIsAllIn ? 1 : flatRealize) >= need + c.p.callMargin) return { action: { type: 'call' }, reason: tag + ' → call' };
   return { action: fold(c), reason: tag + ' → fold' };
 }
 

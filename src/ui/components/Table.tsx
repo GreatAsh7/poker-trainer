@@ -22,6 +22,8 @@ interface TableProps {
   thinkingPi: number;
   thinkStart: number;
   thinkDuration: number;
+  /** ms already elapsed on the ring (resuming a paused decision timer) */
+  ringDelay?: number;
   hud: Record<string, SeatHud> | null;
   bigBlind: number;
   /** overlay content in the middle of the felt (e.g. "Hand over" banner) */
@@ -209,6 +211,7 @@ export const Table = memo(function Table(props: TableProps) {
           thinking={thinkingPi === s.pi}
           thinkStart={props.thinkStart}
           thinkDuration={props.thinkDuration}
+          ringDelay={props.ringDelay ?? 0}
           hud={hud?.[s.id] ?? null}
           bigBlind={bigBlind}
           showdown={winnersShown}
@@ -233,6 +236,7 @@ interface SeatProps {
   thinking: boolean;
   thinkStart: number;
   thinkDuration: number;
+  ringDelay?: number;
   hud: SeatHud | null;
   bigBlind: number;
   showdown: boolean;
@@ -284,7 +288,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
       </div>
 
       <div className="seat__plate">
-        {p.thinking && <TimerRing key={p.thinkStart} duration={p.thinkDuration} />}
+        {p.thinking && <TimerRing key={p.thinkStart} duration={p.thinkDuration} delay={p.ringDelay} />}
         <div className={`seat__avatar seat__avatar--${s.seat % 6}`} aria-hidden>
           {hero ? 'You'.slice(0, 1) : s.name.slice(0, 1)}
         </div>
@@ -335,19 +339,19 @@ const SeatView = memo(function SeatView(p: SeatProps) {
   );
 });
 
-function TimerRing({ duration }: { duration: number }) {
+function TimerRing({ duration, delay = 0 }: { duration: number; delay?: number }) {
   return (
-    <svg className="timer-ring" viewBox="0 0 100 100" aria-hidden>
-      <rect className="timer-ring__track" x="2" y="2" width="96" height="96" rx="18" pathLength={100} />
+    <svg className="timer-ring" viewBox="0 0 182 68" aria-hidden>
+      <rect className="timer-ring__track" x="2" y="2" width="178" height="64" rx="17" pathLength={100} />
       <rect
         className="timer-ring__bar"
         x="2"
         y="2"
-        width="96"
-        height="96"
-        rx="18"
+        width="178"
+        height="64"
+        rx="17"
         pathLength={100}
-        style={{ animationDuration: `${duration}ms` }}
+        style={{ animationDuration: `${duration}ms`, animationDelay: `-${Math.max(0, delay)}ms` }}
       />
     </svg>
   );

@@ -54,7 +54,7 @@ function act(bot: BotId, v: PlayerView, stats: Record<string, PlayerStats>, rng:
     }
     default: {
       const models: Record<string, ReturnType<typeof toModel>> = {};
-      for (const p of v.players) if (p.pi !== v.me) models[p.id] = toModel(stats[p.id]);
+      for (const p of v.players) if (p.pi !== v.me) models[p.id] = toModel(stats[p.id], v.players.length);
       const persona = bot === 'expert' && EXPERT_PATCH ? { ...PERSONALITIES.expert, ...EXPERT_PATCH } : PERSONALITIES[bot as 'expert'];
       return decide({ view: v, persona, models, rng }).action;
     }
@@ -175,6 +175,7 @@ async function main() {
     ...(['tag', 'lag', 'nit', 'station', 'threebettor', 'jammer', 'random', 'callstation', 'maniac'] as BotId[]).map((opp) => ({ opp, stack: 100 })),
     ...(['tag', 'lag', 'nit', 'station', 'jammer'] as BotId[]).map((opp) => ({ opp, stack: 40 })),
     ...(['tag', 'lag', 'nit', 'station', 'jammer', 'threebettor'] as BotId[]).map((opp) => ({ opp, stack: 20 })),
+    ...(['tag', 'lag', 'nit', 'station', 'jammer'] as BotId[]).map((opp) => ({ opp, stack: 10 })),
   ];
   const onlyIdx = args.indexOf('--only');
   const only = onlyIdx >= 0 ? args[onlyIdx + 1].split(',') : null; // e.g. 100:tag,20:lag,ring
@@ -193,6 +194,7 @@ async function main() {
     ...(['tag', 'lag', 'nit', 'station'] as BotId[]).map((opp) => ({ opp, stack: 40 })),
     ...(['tag', 'lag', 'nit', 'station', 'jammer'] as BotId[]).map((opp) => ({ opp, stack: 20 })),
     ...(['tag', 'nit'] as BotId[]).map((opp) => ({ opp, stack: 200 })),
+    ...(['tag', 'lag', 'nit'] as BotId[]).map((opp) => ({ opp, stack: 12 })),
   ].filter((r) => !only || only.includes(`ring${r.stack}:${r.opp}`));
   const decksPer = Math.ceil((hands * 2) / 6 / chunks);
   const vsJobs = ringRowsSpec.map(async (r, oi) => {

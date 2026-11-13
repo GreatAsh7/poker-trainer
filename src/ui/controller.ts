@@ -61,6 +61,8 @@ export interface Snapshot {
   thinkDuration: number;
   handNumber: number;
   handsTotal: number;
+  /** unique id of the current match (reports remember it so replays never mix matches) */
+  matchKey: string;
   match: MatchState | null;
   logs: HandLog[];
   /** finished hands this match (most recent last) */
@@ -105,6 +107,7 @@ export class TableController {
       thinkDuration: 0,
       handNumber: 0,
       handsTotal: 0,
+      matchKey: '',
       match: null,
       logs: [],
       history: [],
@@ -145,6 +148,7 @@ export class TableController {
     this.models = {};
     this.set({
       phase: 'playing',
+      matchKey: `${Date.now().toString(36)}-${setup.seed.toString(36)}`,
       match,
       handsTotal: setup.hands,
       handNumber: 0,
@@ -364,7 +368,7 @@ export class TableController {
         this.fullHands.push(h);
         const pub = publicHand(h, -1);
         addHand(this.stats, pub);
-        this.models = Object.fromEntries(Object.entries(this.stats).map(([id, s]) => [id, toModel(s)]));
+        this.models = Object.fromEntries(Object.entries(this.stats).map(([id, s]) => [id, toModel(s, m.seats.filter((x) => !x.busted).length)]));
         const heroNet = h.won[userPi] - h.players[userPi].totalBet;
         const logs = this.snap.logs.map((l) =>
           l.handId === h.handId

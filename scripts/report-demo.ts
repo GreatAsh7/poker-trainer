@@ -57,7 +57,7 @@ for (let i = 0; i < N; i++) {
     if (h.players[pi].id === 'you') a = learner(v);
     else {
       const models: Record<string, ReturnType<typeof toModel>> = {};
-      for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id]);
+      for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id], v.players.length);
       a = decide({ view: v, persona: PERSONALITIES[bots[Number(h.players[pi].id.slice(1))] as Exclude<BotStyle, 'placeholder'>], models, rng }).action;
     }
     if (!legalActions(h)) break;

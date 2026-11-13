@@ -192,9 +192,10 @@ export const POPULATION: OpponentModel = {
   hands: 0, vpip: 0.25, pfr: 0.19, threeBet: 0.07, foldTo3Bet: 0.55, foldToCbet: 0.45, aggFreq: 0.5, wtsd: 0.3, bluffRate: 0.25, foldToBet: 0.4,
 };
 
-export function toModel(s: PlayerStats | undefined): OpponentModel {
-  if (!s) return { ...POPULATION };
-  const P = POPULATION;
+/** @param np players at the table: reads start from the typical frequencies for that size */
+export function toModel(s: PlayerStats | undefined, np = 6): OpponentModel {
+  const P = { ...POPULATION, ...populationFor(np) };
+  if (!s) return { ...P, hands: 0 };
   const postTotal = s.postBets + s.postCalls + s.postFolds;
   return {
     hands: s.hands,

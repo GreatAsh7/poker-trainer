@@ -86,7 +86,7 @@ describe('match report', () => {
       expect(k.evLossBB).toBeGreaterThan(0);
     }
     expect(r.focus.length).toBeGreaterThan(0);
-    expect(['A', 'B', 'C', 'D', 'F']).toContain(r.grade);
+    expect(r.grade).toBe('–'); // too few hands to grade
   });
 
   it('does not judge by results: the all-in with aces is not a mistake', () => {

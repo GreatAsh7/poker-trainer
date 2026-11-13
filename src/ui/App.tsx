@@ -97,12 +97,29 @@ export function App() {
 
   // optional decision timer: check if free, otherwise fold
   const [timerStart, setTimerStart] = useState(0);
+  const [timerLeft, setTimerLeft] = useState(0);
+  const [timerDelay, setTimerDelay] = useState(0);
+  const timerRemaining = useRef(0);
+  // a new decision gets the full time
+  useEffect(() => {
+    timerRemaining.current = prefs.turnTimer * 1000;
+  }, [snap.legal, prefs.turnTimer]);
   useEffect(() => {
     if (!snap.legal || prefs.turnTimer <= 0 || replayId !== null || confirmLeave || showSettings) return;
     const legal = snap.legal;
-    setTimerStart(performance.now());
-    const t = setTimeout(() => ctrl.act(legal.canCheck ? { type: 'check' } : { type: 'fold' }), prefs.turnTimer * 1000);
-    return () => clearTimeout(t);
+    const started = performance.now();
+    const left = timerRemaining.current;
+    // the ring shows the time left (started earlier when resuming after a dialog)
+    setTimerStart(started);
+    setTimerDelay(prefs.turnTimer * 1000 - left);
+    setTimerLeft(Math.ceil(left / 1000));
+    const tick = setInterval(() => setTimerLeft(Math.max(0, Math.ceil((left - (performance.now() - started)) / 1000))), 250);
+    const t = setTimeout(() => ctrl.act(legal.canCheck ? { type: 'check' } : { type: 'fold' }), left);
+    return () => {
+      clearTimeout(t);
+      clearInterval(tick);
+      timerRemaining.current = Math.max(0, left - (performance.now() - started));
+    };
   }, [snap.legal, prefs.turnTimer, ctrl, replayId, confirmLeave, showSettings]);
 
   const modalOpen = replayId !== null || confirmLeave || showSettings;
@@ -123,7 +140,8 @@ export function App() {
     setBuilding('building');
     client
       .report([...hands], 'you', { players: s.numBots + 1, startingBB: s.startingBB, hands: s.hands, difficulty: s.difficulty })
-      .then((r) => {
+      .then((rep) => {
+        const r = { ...rep, matchKey: ctrl.getSnapshot().matchKey };
         setReports(saveReport(r));
         setReport(r);
         setBuilding('idle');
@@ -213,7 +231,7 @@ export function App() {
 
   if (screen === 'report' && report) {
     const current = new Set(snap.history.map((x) => x.handId));
-    const isCurrentMatch = reports.length > 0 && report.id === reports[reports.length - 1].id && snap.history.length > 0;
+    const isCurrentMatch = !!report.matchKey && report.matchKey === snap.matchKey && snap.history.length > 0;
     return (
       <MotionConfig reducedMotion="user">
         <ReportScreen
@@ -221,7 +239,7 @@ export function App() {
           history={reports}
           canReplay={(id) => isCurrentMatch && current.has(id)}
           onReplay={setReplayId}
-          onPlayAgain={() => (lastSetup ? start({ ...lastSetup, seed: Date.now() >>> 0 }) : setScreen('setup'))}
+          onPlayAgain={lastSetup ? () => start({ ...lastSetup, seed: Date.now() >>> 0 }) : undefined}
           onSettings={() => {
             ctrl.stop();
             setScreen('setup');
@@ -244,13 +262,17 @@ export function App() {
   const nextActor = h && !h.finished && h.toAct >= 0 && h.toAct !== snap.userPi ? h.players[h.toAct].name : null;
   if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
   else if (nextActor) waiting = `${nextActor} to act`;
-  else if (snap.phase === 'handOver') waiting = 'Hand over — next hand coming up';
+  else if (snap.phase === 'handOver') waiting = prefs.pauseAfterHand ? 'Hand over — press Space or “Next hand” to continue' : 'Hand over — next hand coming up';
   if (heroDisplay?.folded && snap.phase === 'playing') waiting = `You folded — watching the rest of the hand${thinkingName ? ` · ${thinkingName} is thinking…` : ''}`;
   const preActs = h ? h.actions.filter((a) => a.street === 'preflop') : [];
   const preflopRaises = preActs.filter((a) => a.type === 'raise' || a.type === 'bet').length;
   const firstRaise = preActs.findIndex((a) => a.type === 'raise' || a.type === 'bet');
   const limpers = preActs.filter((a, i) => a.type === 'call' && (firstRaise < 0 || i < firstRaise)).length;
   const totals = h ? h.players.map((p) => p.totalBet) : [];
+  const lastHand =
+    snap.phase === 'handOver' &&
+    !!snap.match &&
+    (snap.match.handsPlayed >= snap.handsTotal || (snap.match.seats[0].stack <= 0 && !snap.match.seats[0].autoRebuy));
 
   return (
     <MotionConfig reducedMotion="user">
@@ -295,12 +317,13 @@ export function App() {
                 thinkingPi={snap.legal && prefs.turnTimer > 0 ? snap.userPi : snap.thinkingPi}
                 thinkStart={snap.legal && prefs.turnTimer > 0 ? timerStart : snap.thinkStart}
                 thinkDuration={snap.legal && prefs.turnTimer > 0 ? prefs.turnTimer * 1000 : snap.thinkDuration}
+                ringDelay={snap.legal && prefs.turnTimer > 0 ? timerDelay : 0}
                 hud={hud}
                 bigBlind={bb}
                 center={
                   snap.phase === 'handOver' && !modalOpen ? (
                     <button className="next-hand" onClick={(e) => { e.stopPropagation(); ctrl.skip(); }} data-testid="next-hand">
-                      Next hand <kbd>Space</kbd>
+                      {lastHand ? 'See your report' : 'Next hand'} <kbd>Space</kbd>
                     </button>
                   ) : null
                 }
@@ -324,6 +347,7 @@ export function App() {
             totals={totals}
             heroPi={snap.userPi}
             waitingText={waiting}
+            timerText={snap.legal && prefs.turnTimer > 0 ? `${timerLeft} s left` : undefined}
             onAct={onAct}
             decisionKey={`${h?.handId ?? 0}-${h?.actions.length ?? 0}-${snap.legal ? 1 : 0}`}
           />
@@ -374,7 +398,7 @@ export function App() {
           <Modal key="leave" title="Leave this match?" onClose={() => setConfirmLeave(false)}>
             <p>
               {snap.history.length >= 5
-                ? `You can stop now and get a coaching report for the ${snap.history.length} hands you played, or leave without one.`
+                ? `You can stop now and get a coaching report for the ${snap.history.length} completed hands${snap.phase === 'playing' ? ' (the hand in progress won’t count)' : ''}, or leave without one.`
                 : 'Your progress in this match will be lost.'}
             </p>
             <div className="matchover__actions">

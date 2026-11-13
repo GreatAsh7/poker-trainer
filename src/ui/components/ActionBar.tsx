@@ -13,6 +13,8 @@ interface Props {
   limpers: number;
   /** show the "you need X% equity" helper */
   showPotOdds?: boolean;
+  /** decision timer read-out, e.g. "12 s left" */
+  timerText?: string;
   /** chips each player has committed this hand (for pot odds) */
   totals: readonly number[];
   heroPi: number;
@@ -129,6 +131,7 @@ export function ActionBar(p: Props) {
         {active && legal ? (
           toCall > 0 ? (
             <>
+              {p.timerText && <span className="actionbar__timer">{p.timerText}</span>}
               <span>
                 To call <strong>{fmtChips(legal.callAmount)}</strong>
                 {legal.callIsAllIn && ' (all-in)'}
@@ -157,7 +160,7 @@ export function ActionBar(p: Props) {
             </>
           ) : (
             <>
-              <span className="actionbar__yourturn">Your turn</span>
+              <span className="actionbar__yourturn">Your turn{p.timerText ? ` · ${p.timerText}` : ''}</span>
               <span className="dot">·</span>
               <span>
                 Pot <strong>{fmtChips(p.pot)}</strong>
