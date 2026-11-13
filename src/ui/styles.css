@@ -1,4 +1,6 @@
 :root {
+  /* scale for the top bar, action bar and log on large screens */
+  --z: 1;
   --bg: #0d1216;
   --bg-2: #141b21;
   --panel: #172028;
@@ -41,8 +43,8 @@ h1, h2, h3 { margin: 0; }
 .app {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  grid-template-rows: 52px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) calc(320px * var(--z));
+  grid-template-rows: calc(52px * var(--z)) minmax(0, 1fr) auto;
   grid-template-areas: 'top top' 'main log' 'foot log';
 }
 .app.app--nolog { grid-template-columns: minmax(0, 1fr) 0; }
@@ -50,6 +52,11 @@ h1, h2, h3 { margin: 0; }
 .main { grid-area: main; position: relative; min-height: 0; }
 .log { grid-area: log; }
 .footer { grid-area: foot; }
+.topbar, .footer, .log { zoom: var(--z); }
+.footer .actionbar { max-width: 1240px; }
+@media (min-width: 1700px) { :root { --z: 1.15; } }
+@media (min-width: 2000px) { :root { --z: 1.3; } }
+@media (min-width: 2400px) { :root { --z: 1.5; } }
 
 .topbar {
   display: flex; align-items: center; gap: 20px; padding: 0 16px;
@@ -100,7 +107,8 @@ h1, h2, h3 { margin: 0; }
 
 /* pot */
 .pot { position: absolute; transform: translate(-50%, -50%); }
-.pot__inner { display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
+.pot__inner { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pot__chips { height: 22px; }
 .pot__total {
   background: rgba(0, 0, 0, 0.42); padding: 4px 12px; border-radius: 999px; font-size: 15px; white-space: nowrap;
   display: flex; gap: 8px; align-items: baseline; color: #d7e2da;
@@ -177,7 +185,7 @@ h1, h2, h3 { margin: 0; }
 .bet, .pot, .board, .seat, .dealer-btn { will-change: transform; }
 
 .dealer-btn {
-  position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; border: 2px solid #c9a227;
   background: radial-gradient(circle at 35% 30%, #ffffff, #d9d6cf); color: #222; font-weight: 800; font-size: 13px;
   display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); z-index: 2;
 }
@@ -206,6 +214,11 @@ h1, h2, h3 { margin: 0; }
   width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700;
   background: linear-gradient(135deg, #3b4d5c, #26333d); color: #cfe0ec; font-size: 17px;
 }
+.seat__avatar--1 { background: linear-gradient(135deg, #3d5a80, #253a55); }
+.seat__avatar--2 { background: linear-gradient(135deg, #6a4c93, #43305f); }
+.seat__avatar--3 { background: linear-gradient(135deg, #2a7f62, #1b5341); }
+.seat__avatar--4 { background: linear-gradient(135deg, #9a4d4d, #643131); }
+.seat__avatar--5 { background: linear-gradient(135deg, #5c6b73, #3a454b); }
 .seat--hero .seat__avatar { background: linear-gradient(135deg, #b98a26, #7a5a16); color: #fff; }
 .seat__info { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .seat__name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -402,7 +415,8 @@ h1, h2, h3 { margin: 0; }
 /* narrow screens: the log becomes a drawer over the table instead of a column */
 @media (max-width: 1279px) {
   .app, .app.app--nolog { grid-template-columns: minmax(0, 1fr) 0; }
-  .log { position: fixed; right: 0; top: 52px; bottom: 0; width: 320px; z-index: 30; box-shadow: -12px 0 30px rgba(0,0,0,0.5); }
+  /* drawer over the table only: it never covers the action bar */
+  .log { grid-area: main; justify-self: end; width: 320px; height: 100%; z-index: 30; box-shadow: -12px 0 30px rgba(0,0,0,0.5); }
   .topbar__meta span:nth-child(2) { display: none; }
   .btn { min-width: 112px; }
   .btn--raise { min-width: 150px; }

@@ -7,6 +7,7 @@ import type { Card } from '../engine/cards';
 import type { ActionRecord, HandState, PotAward, Street } from '../engine/game';
 import { computePots } from '../engine/game';
 import { cardsToString } from '../engine/cards';
+import { describeHandDetailed, evaluate } from '../engine/evaluator';
 
 export interface SeatDisplay {
   pi: number;
@@ -202,9 +203,14 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
         s.handName = e.handName;
         break;
       }
-      case 'muck':
-        seats[e.pi].mucked = true;
+      case 'muck': {
+        const s = seats[e.pi];
+        s.mucked = true;
+        // the hero always sees the name of their own hand
+        const hole = h.players[e.pi].hole;
+        if (e.pi === viewerPi && hole.length === 2 && board.length === 5) s.handName = describeHandDetailed(evaluate([...hole, ...board]));
         break;
+      }
       case 'award': {
         collect();
         const a = e.award;

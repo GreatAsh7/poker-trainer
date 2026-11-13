@@ -131,7 +131,6 @@ export function describeHand(value: number): string {
   }
 }
 
-const kick = (r: number) => (r === 8 ? 'Ten' : RANK_NAMES[r]);
 
 /**
  * Name including the ranks that break ties, e.g. "Pair of Aces, King kicker",
@@ -140,20 +139,23 @@ const kick = (r: number) => (r === 8 ? 'Ten' : RANK_NAMES[r]);
 export function describeHandDetailed(value: number): string {
   const cat = categoryOf(value);
   const r = [0, 1, 2, 3, 4].map((i) => nib(value, i));
-  const seq = (xs: number[]) => xs.map((x) => (x === 8 ? 'Ten' : RANK_NAMES[x])).join('-');
+  // short rank symbols for the cards that break ties: A K Q J 10 9 ...
+  const sym = (x: number) => (x === 8 ? '10' : '23456789TJQKA'[x]);
+  const list = (xs: number[]) => xs.map(sym).join('-');
+  const kickers = (xs: number[]) => `${list(xs)} kicker${xs.length > 1 ? 's' : ''}`;
   switch (cat) {
     case Category.Quads:
-      return `Four of a kind, ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+      return `Four of a kind, ${RANK_PLURALS[r[0]]} (${kickers([r[1]])})`;
     case Category.Flush:
-      return `Flush, ${seq(r.slice(0, 2))} high`;
+      return `Flush (${list(r)})`;
     case Category.Trips:
-      return `Three of a kind, ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+      return `Three of a kind, ${RANK_PLURALS[r[0]]} (${kickers(r.slice(1, 3))})`;
     case Category.TwoPair:
-      return `Two pair, ${RANK_PLURALS[r[0]]} and ${RANK_PLURALS[r[1]]}, ${kick(r[2])} kicker`;
+      return `Two pair, ${RANK_PLURALS[r[0]]} and ${RANK_PLURALS[r[1]]} (${kickers([r[2]])})`;
     case Category.Pair:
-      return `Pair of ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+      return `Pair of ${RANK_PLURALS[r[0]]} (${kickers(r.slice(1, 4))})`;
     case Category.HighCard:
-      return `${seq(r.slice(0, 2))} high`;
+      return `High card (${list(r)})`;
     default:
       return describeHand(value);
   }

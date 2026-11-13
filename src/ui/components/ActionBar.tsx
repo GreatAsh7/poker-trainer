@@ -21,7 +21,12 @@ interface Props {
   decisionKey: string;
 }
 
-const PLACEHOLDER_PRESETS = ['⅓', '½', '⅔', 'Pot', 'All-in'].map((label) => ({ label, to: -1, hint: label }));
+const PLACEHOLDER_PRESETS = ['', '', '', '', ''].map((label, i) => ({ label, to: -1 - i, hint: '' }));
+
+const ALLIN_ONLY = (to: number) => [
+  ...['', '', '', ''].map((label, i) => ({ label, to: -1 - i, hint: '' })),
+  { label: 'All-in', to, hint: 'All-in is the only raise possible' },
+];
 
 export function ActionBar(p: Props) {
   const { legal } = p;
@@ -128,7 +133,15 @@ export function ActionBar(p: Props) {
               </span>
               <span className="dot">·</span>
               <span>
-                Pot <strong>{fmtChips(odds?.pot ?? p.pot)}</strong>
+                {odds && odds.pot !== p.pot ? (
+                  <span title="You can only win what you can match: chips above your stack go back to the bettor or into a side pot">
+                    Pot you can win <strong>{fmtChips(odds.pot)}</strong>
+                  </span>
+                ) : (
+                  <>
+                    Pot <strong>{fmtChips(p.pot)}</strong>
+                  </>
+                )}
               </span>
               <span className="dot">·</span>
               <span title="Pot odds: the share of the final pot you pay to call. If your chance of winning is higher than this, calling makes money in the long run.">
@@ -181,19 +194,19 @@ export function ActionBar(p: Props) {
             data-testid="btn-raise"
             title={`${raiseLabel} (R or Enter)`}
           >
-            {!active ? 'Raise' : allIn ? 'All-in' : raiseLabel}{' '}
-            <span className="btn__amt">{active && legal?.raiseType ? fmtChips(textValid ? parsed : raiseTo) : ''}</span>
+            {!active ? 'Raise' : allIn || legal?.raiseAllInOnly ? 'All-in' : raiseLabel}{' '}
+            <span className="btn__amt">{active && legal?.raiseType && textValid ? fmtChips(parsed) : ''}</span>
             <kbd>R</kbd>
           </button>
         </div>
 
         <div className={`actionbar__sizing ${legal?.raiseType && active ? '' : 'actionbar__sizing--off'}`}>
           <div className="presets">
-            {(presets.length ? presets : PLACEHOLDER_PRESETS).map((pr) => (
+            {(presets.length && !legal?.raiseAllInOnly ? presets : legal?.raiseAllInOnly ? ALLIN_ONLY(legal.maxTo) : PLACEHOLDER_PRESETS).map((pr, i) => (
               <button
-                key={pr.label}
-                className={`preset ${active && pr.to === raiseTo && (presets.length ? presets : PLACEHOLDER_PRESETS).find((x) => x.to === raiseTo) === pr ? 'preset--on' : ''}`}
-                disabled={!active}
+                key={i}
+                className={`preset ${active && textValid && pr.to === parsed && (presets.length ? presets : PLACEHOLDER_PRESETS).find((x) => x.to === parsed) === pr ? 'preset--on' : ''}`}
+                disabled={!active || pr.to < 0}
                 onClick={() => setAmount(pr.to)}
                 title={`${pr.hint}: ${fmtChips(pr.to)}`}
               >
@@ -212,7 +225,7 @@ export function ActionBar(p: Props) {
               max={legal?.maxTo ?? 1}
               step={1}
               value={active ? raiseTo : (legal?.minTo ?? 0)}
-              disabled={!active || !legal?.raiseType}
+              disabled={!active || !legal?.raiseType || legal.raiseAllInOnly}
               onChange={(e) => setAmount(Number(e.target.value))}
               aria-label="Raise amount"
               title="Arrow keys: ±1 big blind (Shift: ±5)"
@@ -220,7 +233,7 @@ export function ActionBar(p: Props) {
             <button className="sizer__step" disabled={!active} onClick={() => setAmount(raiseTo + p.bigBlind)} aria-label="Increase by one big blind" title="Up / Right arrow">
               +
             </button>
-            <label className={`sizer__input ${text !== '' && !textValid && active ? 'sizer__input--bad' : ''}`}>
+            <label className={`sizer__input ${text !== '' && !textValid && active && legal?.raiseType ? 'sizer__input--bad' : ''}`}>
               <input
                 ref={inputRef}
                 type="number"
@@ -228,18 +241,22 @@ export function ActionBar(p: Props) {
                 min={legal?.minTo}
                 max={legal?.maxTo}
                 step={1}
-                value={active ? text : ''}
+                value={active && legal?.raiseType ? text : ''}
                 disabled={!active || !legal?.raiseType}
                 onChange={(e) => {
                   setText(e.target.value);
                   const v = Number(e.target.value);
                   if (legal?.raiseType && Number.isInteger(v) && v >= legal.minTo && v <= legal.maxTo) setRaiseTo(v);
                 }}
-                onBlur={() => setAmount(textValid ? parsed : raiseTo)}
+                onBlur={() => {
+                  // clamp anything typed to the legal range
+                  if (text.trim() !== '' && !Number.isNaN(parsed)) setAmount(Math.round(parsed));
+                  else setAmount(raiseTo);
+                }}
                 aria-label="Raise to amount"
                 data-testid="raise-input"
               />
-              <span className="sizer__bb">{legal?.raiseType ? fmtBB(textValid ? parsed : raiseTo, p.bigBlind) : ''}</span>
+              <span className="sizer__bb">{legal?.raiseType && textValid ? fmtBB(parsed, p.bigBlind) : ''}</span>
             </label>
           </div>
           <div className="sizer__range">
@@ -250,7 +267,7 @@ export function ActionBar(p: Props) {
                 </span>
               ) : (
                 <span>
-                  Min {fmtChips(legal.minTo)} · Max {fmtChips(legal.maxTo)}
+                  {legal.raiseAllInOnly ? `You can only raise all-in (${fmtChips(legal.maxTo)})` : `Min ${fmtChips(legal.minTo)} · Max ${fmtChips(legal.maxTo)}`}
                 </span>
               )
             ) : (

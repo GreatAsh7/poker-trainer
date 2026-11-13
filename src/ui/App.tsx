@@ -99,6 +99,7 @@ export function App() {
       const type = t && t.tagName === 'INPUT' ? (t as HTMLInputElement).type : '';
       if (type === 'number' || type === 'text' || (t && t.tagName === 'TEXTAREA')) return;
       if (document.querySelector('.modal')) return;
+      if (e.key === ' ' && screen === 'table' && t && (t.tagName === 'BUTTON' || type === 'checkbox' || type === 'range')) return;
       if (e.key === ' ' && screen === 'table') {
         e.preventDefault();
         ctrl.skip();
@@ -260,15 +261,6 @@ export function App() {
           {snap.error && <div className="error-banner">Something went wrong: {snap.error}</div>}
         </main>
 
-        {showLog && (
-          <HandLog
-            logs={snap.logs}
-            currentHandId={snap.phase === 'playing' ? (h?.handId ?? -1) : -1}
-            finished={finishedIds}
-            onReplay={setReplayId}
-            onClose={() => setShowLog(false)}
-          />
-        )}
 
         <footer className="footer">
           <ActionBar
@@ -286,6 +278,16 @@ export function App() {
             decisionKey={`${h?.handId ?? 0}-${h?.actions.length ?? 0}-${snap.legal ? 1 : 0}`}
           />
         </footer>
+
+        {showLog && (
+          <HandLog
+            logs={snap.logs}
+            currentHandId={snap.phase === 'playing' ? (h?.handId ?? -1) : -1}
+            finished={finishedIds}
+            onReplay={setReplayId}
+            onClose={() => setShowLog(false)}
+          />
+        )}
       </div>
 
       {replayModal}

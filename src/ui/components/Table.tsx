@@ -71,7 +71,6 @@ export const Table = memo(function Table(props: TableProps) {
     <div className="table" data-testid="table">
       <div className="table__rail" />
       <div className="table__felt">
-        <div className="table__logo">POKER TRAINER</div>
       </div>
 
       {/* pot */}
@@ -86,11 +85,12 @@ export const Table = memo(function Table(props: TableProps) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
+              <div className="pot__chips">{d.pot > 0 && <ChipStack amount={d.pot} showLabel={false} />}</div>
               <div className="pot__total">
                 Pot <strong>{fmtChips(d.totalPot)}</strong>
                 <span className="pot__bb">{fmtBB(d.totalPot, bigBlind)}</span>
               </div>
-              {d.pot > 0 && <ChipStack amount={d.pot} showLabel={false} />}
+
               {d.pots.length > 1 && (
                 <div className="pot__sides">
                   {d.pots.map((p) => (
@@ -213,6 +213,7 @@ export const Table = memo(function Table(props: TableProps) {
           bigBlind={bigBlind}
           showdown={winnersShown}
           handOver={d.finished}
+          winCards={s.winner ? winCards : []}
         />
       ))}
 
@@ -236,6 +237,8 @@ interface SeatProps {
   bigBlind: number;
   showdown: boolean;
   handOver: boolean;
+  /** the winning five cards (to highlight this seat's playing hole cards) */
+  winCards: number[];
 }
 
 const SeatView = memo(function SeatView(p: SeatProps) {
@@ -251,7 +254,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
   ].join(' ');
   const showCards = s.hasCards || (s.cards && s.cards.length > 0 && !s.folded);
   const labelSide = !hero && slot.seat.x > 700 ? 'left' : 'right';
-  const showHandName = !!s.handName && p.showdown && !s.mucked;
+  const showHandName = !!s.handName && p.showdown && (!s.mucked || hero);
   const dx = DEALER_PT.x - slot.seat.x;
   const dy = DEALER_PT.y - slot.seat.y;
   return (
@@ -273,6 +276,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
                   faceUp={!!s.cards}
                   size={hero ? 'lg' : 'md'}
                   flipDelay={hero ? 0.35 + (i * p.np + p.dealIndex) * 0.06 : 0}
+                  highlight={!!s.cards && p.winCards.includes(s.cards[i])}
                 />
               </motion.div>
             ))}
@@ -281,7 +285,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
 
       <div className="seat__plate">
         {p.thinking && <TimerRing key={p.thinkStart} duration={p.thinkDuration} />}
-        <div className="seat__avatar" aria-hidden>
+        <div className={`seat__avatar seat__avatar--${s.seat % 6}`} aria-hidden>
           {hero ? 'You'.slice(0, 1) : s.name.slice(0, 1)}
         </div>
         <div className="seat__info">

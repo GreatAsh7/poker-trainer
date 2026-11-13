@@ -11,6 +11,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto('http://localhost:5199/');
 await page.screenshot({ path: `${out}/setup-${W}.png` });
 await page.getByTestId('start-match').click();
+if (process.env.OPENLOG) await page.keyboard.press('l');
 let shots = 0;
 for (let i = 0; i < 400 && shots < 6; i++) {
   await page.waitForTimeout(250);

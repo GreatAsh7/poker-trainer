@@ -58,10 +58,11 @@ describe('all-in presentation', () => {
 describe('detailed hand names', () => {
   const name = (c: string) => describeHandDetailed(evaluate(parseCards(c)));
   it('includes kickers', () => {
-    expect(name('Ac Ad Kh 5s 2c')).toBe('Pair of Aces, King kicker');
-    expect(name('Kc Kd 7h 7s Ac')).toBe('Two pair, Kings and Sevens, Ace kicker');
-    expect(name('Ah Qh 9h 4h 2h')).toBe('Flush, Ace-Queen high');
-    expect(name('Ac Kd 9h 5s 2c')).toBe('Ace-King high');
-    expect(name('Tc Td Th 5s 2c')).toBe('Three of a kind, Tens, Five kicker');
+    expect(name('Ac Ad Kh 5s 2c')).toBe('Pair of Aces (K-5-2 kickers)');
+    expect(name('Kc Kd 7h 7s Ac')).toBe('Two pair, Kings and Sevens (A kicker)');
+    expect(name('Ah Qh 9h 4h 2h')).toBe('Flush (A-Q-9-4-2)');
+    expect(name('Ac Kd 9h 5s 2c')).toBe('High card (A-K-9-5-2)');
+    expect(name('Tc Td Th 5s 2c')).toBe('Three of a kind, Tens (5-2 kickers)');
+    expect(name('Kh Qh 5s 4d 3c 3h 3s')).not.toBe(name('Kd 2c 5s 4d 3c 3h 3s'));
   });
 });

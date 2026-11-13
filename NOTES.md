@@ -153,3 +153,13 @@ TAG 21/16, LAG 33/27, nit 13/8, station 34/6, Expert 27/21; open % UTG→BTN for
     the preflop raiser with most of its range; sim measures app conditions.
   - Minors fixed: board-only straight draws no longer count, BB check narrows the range, fold
     reasons show realised equity, dead code removed, Expert bluffs the river more.
+- ui-critic (Milestone 3): **Not ready (0 blockers, 5 majors)** → fixed: one meaning for "pot"
+  (the action bar says "Pot you can win" when an all-in-for-less caps it); hand names now list
+  every deciding card ("Pair of Aces (K-5-2 kickers)", "Flush (A-Q-9-4-2)") and the winner's
+  playing hole cards are highlighted; the narrow-screen log drawer covers only the table, never
+  the action bar; top bar / action bar / log scale up on large screens (CSS zoom at ≥1700 px);
+  Space activates a focused button. Minors fixed: all-in-only raises show just "All-in", invalid
+  typed amounts clear the readouts and clamp on blur, no stale value when raising is
+  impossible, action bar before the log in tab order, your own hand name always shown at
+  showdown, blank idle presets, pot chips above the total with side pots below, felt logo
+  removed, tinted avatars and a gold-rimmed dealer button.
