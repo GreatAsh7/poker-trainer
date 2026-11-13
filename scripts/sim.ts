@@ -198,7 +198,9 @@ async function main() {
   ].filter((r) => !only || only.includes(`ring${r.stack}:${r.opp}`));
   const decksPer = Math.ceil((hands * 2) / 6 / chunks);
   const vsJobs = ringRowsSpec.map(async (r, oi) => {
-    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('ring', r.opp, decksPer, 31337 * (oi + 1) + c, r.stack, reset)))) as number[][][];
+    // deep stacks swing more: 200 BB rows get 2.5x the hands for a comparable confidence interval
+    const decks = r.stack >= 200 ? Math.ceil(decksPer * 2.5) : decksPer;
+    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('ring', r.opp, decks, 31337 * (oi + 1) + c, r.stack, reset)))) as number[][][];
     return { opp: r.opp, stack: r.stack, res: ci(parts.flat().map((d) => d[0]), 6), hands: parts.flat().length * 6 };
   });
   const ringJob = (async () => {
@@ -218,7 +220,7 @@ async function main() {
     console.log(`${String(r.stack).padStart(3)} BB  ${LABEL[r.opp]}`.padEnd(46) + fmt(r.res).padEnd(26) + (win ? 'Expert wins' : 'NOT significant'));
   }
   if (vs.length) {
-    console.log(`\n6-max: one Expert against five copies of each bot (duplicate, seats rotated), ${vs[0].hands.toLocaleString()} hands per row.`);
+    console.log(`\n6-max: one Expert against five copies of each bot (duplicate, seats rotated), ${vs[0].hands.toLocaleString()} hands per row (2.5x at 200 BB).`);
     console.log('Stack  Opponents'.padEnd(46) + 'Expert bb/100 (95% CI)    Result');
     for (const r of vs) {
       const win = r.res.mean - r.res.half > 0;

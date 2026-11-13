@@ -116,24 +116,27 @@ Built (all pure TS in `src/bots/`, run in the Web Worker):
 - App: setup screen "Opponents" (Mixed / Expert table / Softer table); the controller sends
   every bot the public stats of all players so they adapt over the match.
 
-Measured with `npm run sim -- --hands 60000 --chunks 6` (opponent reads reset every 50 hands,
+Measured with `npm run sim -- --hands 60000 --chunks 5` (opponent reads reset every 50 hands,
 like a new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max
-row; any illegal action aborts the run). Expert bb/100 with 95% CI — every row a significant win:
+row, 300,000 at 200 BB; any illegal action aborts the run). Expert bb/100 with 95% CI — all 43
+rows are significant wins:
 
-| Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB |
-|---|---|---|---|---|---|
-| Heads-up | Solid (TAG) | | +32.3 ± 4.9 | +29.2 ± 3.7 | +49.4 ± 2.4 |
-| Heads-up | Aggressive (LAG) | | +32.4 ± 9.6 | +13.7 ± 5.9 | +15.1 ± 3.5 |
-| Heads-up | Tight-passive (nit) | | +29.7 ± 4.7 | +39.3 ± 3.7 | +47.7 ± 2.8 |
-| Heads-up | Calling station | | +95.5 ± 7.3 | +94.2 ± 7.1 | +69.4 ± 5.2 |
-| Heads-up | Exploit: 3-bets every open | | +54.1 ± 8.4 | | +246.7 ± 3.8 |
-| Heads-up | Exploit: shoves every hand | | +508.3 ± 37.2 | +168.7 ± 15.2 | +49.2 ± 7.3 |
-| Heads-up | Random legal / always call / maniac | | +346.8 / +460.7 / +649.7 | | |
-| 6-max, Expert vs 5 × | Solid (TAG) | +11.1 ± 5.6 | +10.4 ± 4.0 | +7.8 ± 2.7 | +9.8 ± 2.0 |
-| 6-max, Expert vs 5 × | Aggressive (LAG) | | +31.0 ± 6.2 | +10.9 ± 3.8 | +5.8 ± 2.4 |
-| 6-max, Expert vs 5 × | Tight-passive (nit) | +6.1 ± 4.8 | +5.8 ± 3.6 | +5.8 ± 2.9 | +13.4 ± 2.2 |
-| 6-max, Expert vs 5 × | Calling station | | +156.2 ± 9.4 | +109.3 ± 5.7 | +71.8 ± 3.7 |
-| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +129.6 ± 9.9 |
+| Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB | 12 / 10 BB |
+|---|---|---|---|---|---|---|
+| Heads-up | Solid (TAG) | | +10.0 ± 5.0 | +16.1 ± 3.8 | +37.3 ± 2.4 | +19.4 ± 2.4 |
+| Heads-up | Aggressive (LAG) | | +34.0 ± 10.0 | +15.9 ± 6.3 | +20.6 ± 3.6 | +2.6 ± 2.1 |
+| Heads-up | Tight-passive (nit) | | +21.9 ± 4.2 | +25.7 ± 3.5 | +42.1 ± 2.7 | +20.7 ± 2.2 |
+| Heads-up | Calling station | | +97.9 ± 6.9 | +87.4 ± 6.9 | +72.0 ± 4.8 | +29.5 ± 3.5 |
+| Heads-up | Exploit: 3-bets every open | | +55.1 ± 8.9 | | +249.3 ± 3.7 | |
+| Heads-up | Exploit: shoves every hand | | +601.5 ± 38.8 | +198.5 ± 15.8 | +71.9 ± 7.6 | +38.3 ± 3.9 |
+| Heads-up | Random legal / always call / maniac | | +379.4 / +440.2 / +732.5 | | | |
+| 6-max, Expert vs 5 × | Solid (TAG) | +15.5 ± 3.4 | +13.4 ± 3.9 | +5.5 ± 2.7 | +10.9 ± 1.9 | +3.6 ± 1.1 |
+| 6-max, Expert vs 5 × | Aggressive (LAG) | | +30.9 ± 6.2 | +10.6 ± 3.7 | +5.7 ± 2.4 | +4.0 ± 1.6 |
+| 6-max, Expert vs 5 × | Tight-passive (nit) | +5.1 ± 3.0 | +6.8 ± 3.7 | +9.4 ± 2.8 | +14.3 ± 2.1 | +4.8 ± 1.1 |
+| 6-max, Expert vs 5 × | Calling station | | +145.2 ± 9.2 | +113.5 ± 5.8 | +70.4 ± 3.7 | |
+| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +106.3 ± 9.5 | |
+
+(12 / 10 BB column: 6-max rows are 12 BB, heads-up rows 10 BB.)
 
 6-max ring (`npm run sim:ring -- 16000`): personalities clearly distinct (e.g. VPIP/PFR
 TAG 21/16, LAG 33/27, nit 13/8, station 34/6, Expert 27/21; open % UTG→BTN for TAG
@@ -199,3 +202,38 @@ Built (pure TS in `src/analysis/`, run in the Web Worker):
 - Tests: tests/unit/coach.test.ts (mistake detection, exact pot odds, all-in luck, not results-
   oriented), tests/e2e/report.spec.ts (full match → report → saved).
 - Dev tool: `npx tsx scripts/report-demo.ts 60` prints a report for a scripted leaky "learner".
+
+- strategy-critic round 3: **Not ready (2 blockers, 0 majors)** → fixed: any all-in open (or a
+  spot where re-raising is impossible) is decided on price vs the shover's range, never by the
+  3-bet chart; at ≤ 13 BB facing a raise the Expert re-shoves (fold-equity EV) or folds, flats
+  need a better price; open-shoves are EV-based (callers' ranges sized by price and looseness);
+  reads start from table-size priors (`toModel(stats, np)`); 3-bets committing ¼ of a ≤ 25 BB
+  stack become shoves; sim rows added at 10 BB heads-up and 12 BB 6-max; 200 BB rows use 2.5×
+  hands.
+
+### Critic round (Milestone 4)
+- strategy-critic: **Not ready (5 blockers, 6 majors)** → fixed:
+  - pot odds / EV for all-in-for-less calls count only chips you can win (praised −EV call gone);
+  - equity realisation is 1 when every opponent is all-in;
+  - preflop opens, limps, isolation raises, 3-bets and shoves are evaluated (fold equity from a
+    price- and read-based continue range; players still to act included) → new mistake kinds
+    "missed open", "loose open", "limp"; folding AA first in is flagged;
+  - fold equity uses the opponent's observed fold-to-bet / WTSD (bluffs into stations no longer
+    rated good; thin value vs stations not undervalued);
+  - raises (esp. river and check-raises) are read as value-heavy in the range model;
+  - missed c-bets flagged; check EV credits strong hands' check-call / check-raise value; strong
+    hands realise fully; implied odds for draws scale with the stack behind;
+  - exploit tips need 10–25 opportunities; multiway equity says "against your N opponents";
+    "folded when the price was right" only when the call itself is +EV; past-tense key-hand text;
+    situation line narrates every preflop action including yours; card symbols; hand names say
+    when the pair is on the board; position references depend on table size; less stat filler.
+  - Regression tests: tests/unit/coach-regressions.test.ts.
+- ui-critic: **Not ready (1 blocker, 7 majors)** → fixed: reports remember their match
+  (`matchKey`), so replays never show another match's hand; timer ring traces the whole
+  nameplate (and resumes where it was after a dialog, with an "N s left" read-out); coach's notes
+  sit beside the replay table; no grade/bb/100 headline below 15 hands; Settings controls don't
+  wrap and the disabled volume slider is dimmed; setup fits 1280×720 with Settings/Reports links in
+  view; reduced motion keeps the countdown. Minors: hand-over copy when paused, "See your report"
+  on the last hand, Back/Change-settings buttons on an old report, report tabs with arrow keys and
+  tabpanels, Space presses a focused button in the replay, small-sample flags in the position
+  table, progress chart axis + hand counts, "the hand in progress won't count" when leaving.
