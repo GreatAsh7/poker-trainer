@@ -168,3 +168,28 @@ describe('balance', () => {
     expect(checks).toBeGreaterThanOrEqual(22);
   });
 });
+
+describe('short-stack 6-max spots (players still to act are not counted as showdown opponents)', () => {
+  // 6 players, button p0, SB p1, BB p2, UTG p3, HJ p4, CO p5
+  const six = (stacks: number[], heroHole: string) =>
+    makeHand({ stacks, holes: ['2c3d', '4h5s', '7c8d', '9h2s', 'JcQd', 'Kh6s'].map((h, i) => (i === 0 ? heroHole : h)) });
+  it('BTN calls a 10 BB CO shove with AQo', () => {
+    let calls = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      let h = six([20, 200, 200, 200, 200, 20], 'AcQh');
+      h = act(h, 'f', 'f', 'r20'); // UTG, HJ fold, CO shoves 10 BB
+      if (run(h, 'expert', seed).action.type !== 'fold') calls++;
+    }
+    expect(calls).toBeGreaterThanOrEqual(9);
+  });
+  it('BTN re-shoves AJo over a CO open at 15 BB', () => {
+    let shoves = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      let h = six([30, 200, 200, 200, 200, 30], 'AcJh');
+      h = act(h, 'f', 'f', 'r5');
+      const a = run(h, 'expert', seed).action;
+      if (a.type === 'raise' && a.amount === 30) shoves++;
+    }
+    expect(shoves).toBeGreaterThanOrEqual(7);
+  });
+});

@@ -8,7 +8,7 @@
  *   each bot gets every seat's cards once. One Expert, TAG, LAG, nit, station and a second TAG.
  * Reports bb/100 with 95% confidence intervals. Any illegal bot action fails the run.
  *
- *   npm run sim                        # full run (20,000 hands per heads-up row)
+ *   npm run sim                        # full run (20,000 hands per heads-up row; NOTES uses --hands 60000)
  *   npm run sim -- --hands 4000        # quicker
  *   npm run sim -- --reset 0           # never reset reads (one long session)
  */
@@ -181,18 +181,23 @@ async function main() {
   const sel = only ? rows.filter((r) => only.includes(`${r.stack}:${r.opp}`)) : [...rows];
   rows.length = 0;
   rows.push(...sel);
-  const skipRing = !!only && !only.includes('ring');
+  const skipRing = !!only && !only.includes('mixed');
   const pairsPer = Math.ceil(hands / 2 / chunks);
   const huJobs = rows.map(async (r, ri) => {
     const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('hu', r.opp, pairsPer, 7919 * (ri + 1) + c, r.stack, reset)))) as number[][];
     return { ...r, res: ci(parts.flat(), 2) };
   });
   // 6-max: one Expert vs five copies of each personality (the Expert's own result is its edge)
-  const ringOpps = (['tag', 'lag', 'nit', 'station'] as BotId[]).filter((o) => !only || only.includes(`ring:${o}`));
+  const ringRowsSpec: { opp: BotId; stack: number }[] = [
+    ...(['tag', 'lag', 'nit', 'station'] as BotId[]).map((opp) => ({ opp, stack: 100 })),
+    ...(['tag', 'lag', 'nit', 'station'] as BotId[]).map((opp) => ({ opp, stack: 40 })),
+    ...(['tag', 'lag', 'nit', 'station', 'jammer'] as BotId[]).map((opp) => ({ opp, stack: 20 })),
+    ...(['tag', 'nit'] as BotId[]).map((opp) => ({ opp, stack: 200 })),
+  ].filter((r) => !only || only.includes(`ring${r.stack}:${r.opp}`));
   const decksPer = Math.ceil((hands * 2) / 6 / chunks);
-  const vsJobs = ringOpps.map(async (o, oi) => {
-    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('ring', o, decksPer, 31337 * (oi + 1) + c, 100, reset)))) as number[][][];
-    return { opp: o, res: ci(parts.flat().map((d) => d[0]), 6), hands: parts.flat().length * 6 };
+  const vsJobs = ringRowsSpec.map(async (r, oi) => {
+    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('ring', r.opp, decksPer, 31337 * (oi + 1) + c, r.stack, reset)))) as number[][][];
+    return { opp: r.opp, stack: r.stack, res: ci(parts.flat().map((d) => d[0]), 6), hands: parts.flat().length * 6 };
   });
   const ringJob = (async () => {
     if (skipRing) return [] as number[][];
@@ -211,25 +216,25 @@ async function main() {
     console.log(`${String(r.stack).padStart(3)} BB  ${LABEL[r.opp]}`.padEnd(46) + fmt(r.res).padEnd(26) + (win ? 'Expert wins' : 'NOT significant'));
   }
   if (vs.length) {
-    console.log(`\n6-max, 100 BB: one Expert against five copies of each bot (duplicate, seats rotated).`);
-    console.log('Opponents'.padEnd(46) + 'Expert bb/100 (95% CI)    Result');
+    console.log(`\n6-max: one Expert against five copies of each bot (duplicate, seats rotated), ${vs[0].hands.toLocaleString()} hands per row.`);
+    console.log('Stack  Opponents'.padEnd(46) + 'Expert bb/100 (95% CI)    Result');
     for (const r of vs) {
       const win = r.res.mean - r.res.half > 0;
       if (!win) allWin = false;
-      console.log(`5 × ${LABEL[r.opp]} (${r.hands.toLocaleString()} hands)`.padEnd(46) + fmt(r.res).padEnd(26) + (win ? 'Expert wins' : 'NOT significant'));
+      console.log(`${String(r.stack).padStart(3)} BB  5 × ${LABEL[r.opp]}`.padEnd(46) + fmt(r.res).padEnd(26) + (win ? 'Expert wins' : 'NOT significant'));
     }
   }
   // mixed ring (information: who profits most from the weak players)
   if (!ringRows.length) {
     console.log(`
-Illegal bot actions: ${illegal}`);
+Illegal bot actions: none (any illegal action aborts the run)`);
     return;
   }
   const per = MIXED_IDS.map((_, k) => ci(ringRows.map((d) => d[k]), 6));
   console.log(`\nFor information — mixed 6-max table (one of each), 100 BB, duplicate, ${(ringRows.length * 6).toLocaleString()} hands:`);
   console.log('Bot'.padEnd(12) + 'bb/100 (95% CI)');
   MIXED_IDS.forEach((id, k) => console.log(id.padEnd(12) + fmt(per[k])));
-  console.log(`\nIllegal bot actions: ${illegal}`);
+  console.log(`\nIllegal bot actions: none (any illegal action aborts the run)`);
   console.log(allWin ? 'PASS: Expert beats every opponent with 95% confidence in every row.' : 'FAIL: at least one row is not a significant Expert win.');
   console.log(`(${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   if (!allWin) process.exitCode = 1;

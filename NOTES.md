@@ -116,20 +116,24 @@ Built (all pure TS in `src/bots/`, run in the Web Worker):
 - App: setup screen "Opponents" (Mixed / Expert table / Softer table); the controller sends
   every bot the public stats of all players so they adapt over the match.
 
-Measured with `npm run sim -- --hands 60000` (opponent reads reset every 50 hands, like a
-new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max row;
-0 illegal actions). Expert bb/100 with 95% CI:
+Measured with `npm run sim -- --hands 60000 --chunks 6` (opponent reads reset every 50 hands,
+like a new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max
+row; any illegal action aborts the run). Expert bb/100 with 95% CI — every row a significant win:
 
-| Format | Opponent | 100 BB | 40 BB | 20 BB |
-|---|---|---|---|---|
-| Heads-up | Solid (TAG) | +10.3 ± 6.4 | +14.7 ± 5.4 | +41.0 ± 3.7 |
-| Heads-up | Aggressive (LAG) | +113.5 ± 12.0 | +48.3 ± 7.8 | +42.8 ± 4.8 |
-| Heads-up | Tight-passive (nit) | +7.8 ± 4.9 | +6.1 ± 4.8 | +21.8 ± 3.4 |
-| Heads-up | Calling station | +137.3 ± 7.8 | +114.6 ± 8.1 | +81.0 ± 4.9 |
-| Heads-up | Exploit: 3-bets every open | +82.0 ± 9.9 | — | +202.5 ± 5.3 |
-| Heads-up | Exploit: shoves every hand | +635.2 ± 39.0 | +216.9 ± 15.7 | +71.4 ± 7.5 |
-| Heads-up | Random legal / always call / maniac | +420.9 / +454.6 / +750.7 | — | — |
-| 6-max, Expert vs 5 copies | TAG / LAG / nit / station | +6.4 ± 3.4 / +25.5 ± 5.2 / +4.4 ± 3.2 / +153.2 ± 9.3 | — | — |
+| Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB |
+|---|---|---|---|---|---|
+| Heads-up | Solid (TAG) | | +32.3 ± 4.9 | +29.2 ± 3.7 | +49.4 ± 2.4 |
+| Heads-up | Aggressive (LAG) | | +32.4 ± 9.6 | +13.7 ± 5.9 | +15.1 ± 3.5 |
+| Heads-up | Tight-passive (nit) | | +29.7 ± 4.7 | +39.3 ± 3.7 | +47.7 ± 2.8 |
+| Heads-up | Calling station | | +95.5 ± 7.3 | +94.2 ± 7.1 | +69.4 ± 5.2 |
+| Heads-up | Exploit: 3-bets every open | | +54.1 ± 8.4 | | +246.7 ± 3.8 |
+| Heads-up | Exploit: shoves every hand | | +508.3 ± 37.2 | +168.7 ± 15.2 | +49.2 ± 7.3 |
+| Heads-up | Random legal / always call / maniac | | +346.8 / +460.7 / +649.7 | | |
+| 6-max, Expert vs 5 × | Solid (TAG) | +11.1 ± 5.6 | +10.4 ± 4.0 | +7.8 ± 2.7 | +9.8 ± 2.0 |
+| 6-max, Expert vs 5 × | Aggressive (LAG) | | +31.0 ± 6.2 | +10.9 ± 3.8 | +5.8 ± 2.4 |
+| 6-max, Expert vs 5 × | Tight-passive (nit) | +6.1 ± 4.8 | +5.8 ± 3.6 | +5.8 ± 2.9 | +13.4 ± 2.2 |
+| 6-max, Expert vs 5 × | Calling station | | +156.2 ± 9.4 | +109.3 ± 5.7 | +71.8 ± 3.7 |
+| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +129.6 ± 9.9 |
 
 6-max ring (`npm run sim:ring -- 16000`): personalities clearly distinct (e.g. VPIP/PFR
 TAG 21/16, LAG 33/27, nit 13/8, station 34/6, Expert 27/21; open % UTG→BTN for TAG
@@ -163,3 +167,35 @@ TAG 21/16, LAG 33/27, nit 13/8, station 34/6, Expert 27/21; open % UTG→BTN for
   impossible, action bar before the log in tab order, your own hand name always shown at
   showdown, blank idle presets, pot chips above the total with side pots below, felt logo
   removed, tinted avatars and a gold-rimmed dealer button.
+- strategy-critic round 2: **Not ready (2 blockers, 2 majors)**.
+  - Blocker: preflop equity counted players still to act as showdown opponents (Expert folded AQo
+    to a 10 BB shove in 6-max; re-shoves never fired with blinds to act) → equity only vs players
+    who put money in, a wake-up discount per player behind, re-shoves allowed with players behind
+    (their fold probability included), raises committing ⅓ of a ≤25 BB stack become shoves,
+    wider opens/3-bets at ≤30 BB. Tests added for the reported spots.
+  - Blocker: 6-max at 20/40 BB not beaten → sim now has 6-max rows at 20/40/100/200 BB; all win.
+  - Majors: thin nit margins → steals/3-bets widen vs tight players from VPIP (fast-converging),
+    tight players' bets read as value-heavy; adaptation hurting vs TAG → reads were judged
+    against 6-max baselines even heads-up (`populationFor(np)`), fixed; HU TAG now +32.
+  - Minors: one pair re-raising a check-raise (now needs ~88% equity to re-raise a raise);
+    Expert 3-bet frequency raised; sim's illegal-action line clarified.
+
+## Milestone 4 — Coaching report
+Built (pure TS in `src/analysis/`, run in the Web Worker):
+- `replay.ts` — rebuilds the hero's exact view at every decision from a public hand history.
+- `decision.ts` — per decision: equity vs each opponent's estimated range (opponent stats from
+  earlier hands only), pot odds (incl. all-in-for-less), EV of fold / check / call / bet ⅓-½-¾-pot
+  / raise (fold equity from a size-dependent continuing range, equity when called, position-based
+  equity realisation, implied odds for draws), the Expert bot's choice in the same spot.
+- `coach.ts` — report: results (net, bb/100, biggest pots, all-in EV vs actual = luck), stats vs a
+  solid player's ranges for the table size with plain-language verdicts and sample-size warnings,
+  by-position table, key hands (biggest EV losses, each decision explained with equity, pot odds,
+  range make-up and EV cost), what you did well, strategies you could have used (bot exploits from
+  their observed stats + your own habits: limping, button steals, draws, value bets), grade A–F
+  from EV lost per 100 hands, next-match plan; `reviewHand` for per-hand coach's notes.
+- UI: `ReportScreen` (report / hand-by-hand review / progress tabs), report built automatically at
+  match end (or "End & see report" when leaving after ≥ 5 hands), coach's notes in every replay,
+  reports saved in localStorage (`src/ui/storage.ts`), progress chart across matches.
+- Tests: tests/unit/coach.test.ts (mistake detection, exact pot odds, all-in luck, not results-
+  oriented), tests/e2e/report.spec.ts (full match → report → saved).
+- Dev tool: `npx tsx scripts/report-demo.ts 60` prints a report for a scripted leaky "learner".

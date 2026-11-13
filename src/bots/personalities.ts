@@ -48,7 +48,7 @@ export interface Personality {
 export const PERSONALITIES: Record<Exclude<BotStyle, 'placeholder'>, Personality> = {
   expert: {
     style: 'expert', label: 'Expert', blurb: 'Balanced, solver-style ranges and sizings; adapts to your tendencies.',
-    rfiMult: 1, callMult: 1, threeBetMult: 1.1, limpLoose: 0, aggression: 1.05, bluff: 1, callMargin: 0,
+    rfiMult: 1, callMult: 1, threeBetMult: 1.35, limpLoose: 0, aggression: 1.05, bluff: 1, callMargin: 0,
     valueShift: 0, cbet: 1, adapts: true, iters: 1200, sizingVariety: true, balanced: true, defend3Bet: 1, rangeReading: 1,
   },
   tag: {

@@ -198,8 +198,8 @@ export function toModel(s: PlayerStats | undefined): OpponentModel {
   const postTotal = s.postBets + s.postCalls + s.postFolds;
   return {
     hands: s.hands,
-    vpip: shrunk(s.vpip, P.vpip, 25),
-    pfr: shrunk(s.pfr, P.pfr, 25),
+    vpip: shrunk(s.vpip, P.vpip, 12),
+    pfr: shrunk(s.pfr, P.pfr, 12),
     threeBet: shrunk(s.threeBet, P.threeBet, 25),
     foldTo3Bet: shrunk(s.foldTo3Bet, P.foldTo3Bet, 20),
     foldToCbet: shrunk(s.foldToCbet, P.foldToCbet, 15),
@@ -208,4 +208,15 @@ export function toModel(s: PlayerStats | undefined): OpponentModel {
     bluffRate: shrunk(s.riverBluff, P.bluffRate, 12),
     foldToBet: (s.postFolds + P.foldToBet * 20) / (s.postFolds + s.postCalls + s.postRaisesFacing + 20),
   };
+}
+
+/**
+ * Typical preflop frequencies by number of players. Heads-up everyone plays and raises far
+ * more hands, so reads must be judged against the right baseline.
+ */
+export function populationFor(np: number): { vpip: number; pfr: number; threeBet: number } {
+  if (np <= 2) return { vpip: 0.6, pfr: 0.45, threeBet: 0.15 };
+  if (np === 3) return { vpip: 0.4, pfr: 0.3, threeBet: 0.1 };
+  if (np === 4) return { vpip: 0.32, pfr: 0.25, threeBet: 0.08 };
+  return { vpip: POPULATION.vpip, pfr: POPULATION.pfr, threeBet: POPULATION.threeBet };
 }
