@@ -62,7 +62,8 @@ export interface KeyHand {
   situation: string;
   did: string;
   better: string;
-  why: string;
+  /** one explanation per costly decision in the hand, each with its numbers */
+  why: string[];
   evLossBB: number;
 }
 
@@ -150,11 +151,17 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
     if (hero === 'fold' && (best === 'call' || best === 'raise')) {
       lines.push(
         `You folded ${where} when calling ${d.toCall} into ${d.pot} needed only ${pct(d.need)} equity (pot odds ${((1 - d.need) / d.need).toFixed(1)} : 1).`,
-        `Your ${d.handName} had about ${pct(d.equity)} against ${villain}'s likely range (${range}), so ${best === 'call' ? 'a call' : d.best.label.toLowerCase()} was worth about +${chips(d.best.ev)} chips (${bbs(d.best.ev, bb)}).`,
+        (() => {
+          const call = opt('call');
+          const head = `Your ${d.handName} had about ${pct(d.equity)} against ${villain}'s likely range (${range}), so`;
+          if (call && call.ev > 0)
+            return `${head} a call was worth about +${chips(call.ev)} chips (${bbs(call.ev, bb)})${best !== 'call' ? `, and ${d.best.label.toLowerCase()} about +${chips(d.best.ev)}` : ''}.`;
+          return `${head} ${d.best.label.toLowerCase()} was worth about +${chips(d.best.ev)} chips (${bbs(d.best.ev, bb)}).`;
+        })(),
       );
       return { kind: 'fold-with-odds', text: lines.join(' ') };
     }
-    if (hero === 'check' && (best === 'bet' || best === 'raise')) {
+    if (hero === 'check' && (best === 'bet' || best === 'raise') && d.equity >= 0.55) {
       const o = d.best;
       lines.push(
         `You checked ${where} with ${d.handName} (about ${pct(d.equity)} against ${villain}'s range: ${range}).`,
@@ -180,7 +187,7 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
       );
       return { kind: 'overplayed', text: lines.join(' ') };
     }
-    if (hero === 'call' && (best === 'raise' || best === 'bet')) {
+    if (hero === 'call' && (best === 'raise' || best === 'bet') && d.equity >= 0.72) {
       lines.push(
         `You called ${where} with ${d.handName}, which had about ${pct(d.equity)} against ${villain}'s range (${range}).`,
         `${d.best.label} builds the pot while you are ahead and earns about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more.`,
@@ -292,7 +299,9 @@ function statRow(key: string, value: number, n: number, ref: readonly [number, n
   let text: string;
   if (n < t.min || isNaN(value)) {
     verdict = 'sample';
-    text = `Only ${n} ${n === 1 ? 'chance' : 'chances'} this match, too few to judge (reference ${fmt(ref[0])}–${fmt(ref[1])}).`;
+    text = n === 0
+      ? `No chances to measure this in this match (a solid player: ${fmt(ref[0])}–${fmt(ref[1])}).`
+      : `Only ${n} ${n === 1 ? 'chance' : 'chances'} this match, too few to judge (a solid player: ${fmt(ref[0])}–${fmt(ref[1])}).`;
   } else if (value < ref[0]) {
     verdict = 'low';
     text = `${fmt(value)} is below the ${fmt(ref[0])}–${fmt(ref[1])} range of a solid player. ${t.low}`;
@@ -409,29 +418,7 @@ export function buildReport(inp: ReportInput): MatchReport {
           if (dp.action.type === 'raise') btnOpen.n++;
         }
       }
-      const c = classify(d);
-      const note: DecisionNote = {
-        handId: h.handId,
-        street: d.street,
-        position: d.position,
-        hole: d.hole,
-        board: d.board,
-        pot: d.pot,
-        toCall: d.toCall,
-        need: d.need,
-        equity: d.equity,
-        villainName: d.villainName,
-        heroLabel: actionLabel(dp.action),
-        bestLabel: d.best.label,
-        evLoss: d.evLoss,
-        heroEV: d.heroEV,
-        bestEV: d.best.ev,
-        kind: c.kind,
-        text: c.text,
-        options: d.options.map((o) => ({ label: o.label, ev: o.ev })),
-        handName: d.handName,
-        expertAction: actionLabel(d.expert.action),
-      };
+      const note = toNote(d, dp.action, h.handId);
       notes.push(note);
       analyses.push({ d, note });
     }
@@ -491,7 +478,7 @@ export function buildReport(inp: ReportInput): MatchReport {
         situation: situation(h, pi, worst.d),
         did: `You ${worst.note.heroLabel} ${streetName(worst.note.street)}.`,
         better: `A strong player would ${worst.note.bestLabel.toLowerCase()}.`,
-        why: ms.map((m) => m.note.text).join(' '),
+        why: ms.map((m) => `${m.note.street[0].toUpperCase()}${m.note.street.slice(1)}: ${m.note.text}`),
         evLossBB: loss / bb,
       };
     });
@@ -504,19 +491,20 @@ export function buildReport(inp: ReportInput): MatchReport {
 
   // strategies: exploits of the bots' observed tendencies and hero habits
   const strategies: Tip[] = [];
+  const exploits: Tip[] = [];
   for (const [id, s] of Object.entries(stats)) {
     if (id === heroId) continue;
     const name = hands.find((h) => h.players.some((p) => p.id === id))!.players.find((p) => p.id === id)!.name;
     if (s.foldToCbet.opp >= 4 && rate(s.foldToCbet) >= 0.6)
-      strategies.push({ title: `C-bet more against ${name}`, text: `${name} folded to ${pct(rate(s.foldToCbet))} of flop continuation bets (${s.foldToCbet.n} of ${s.foldToCbet.opp}). A small bet (about ⅓ pot) only needs to work 25% of the time to profit, so bet the flop with almost any hand after raising preflop.` });
+      exploits.push({ title: `C-bet more against ${name}`, text: `${name} folded to ${pct(rate(s.foldToCbet))} of flop continuation bets (${s.foldToCbet.n} of ${s.foldToCbet.opp}). A small bet (about ⅓ pot) only needs to work 25% of the time to profit, so bet the flop with almost any hand after raising preflop.` });
     if (s.wtsd.opp >= 6 && rate(s.wtsd) >= 0.45)
-      strategies.push({ title: `Value bet thinner against ${name}`, text: `${name} went to showdown ${pct(rate(s.wtsd))} of the time after seeing a flop (${s.wtsd.n} of ${s.wtsd.opp}). Bet top pair and even second pair for value on every street, and don't bluff: they won't fold.` });
+      exploits.push({ title: `Value bet thinner against ${name}`, text: `${name} went to showdown ${pct(rate(s.wtsd))} of the time after seeing a flop (${s.wtsd.n} of ${s.wtsd.opp}). Bet top pair and even second pair for value on every street, and don't bluff: they won't fold.` });
     if (s.vpip.opp >= 15 && rate(s.vpip) <= 0.16)
-      strategies.push({ title: `Respect ${name}'s raises, steal their blinds`, text: `${name} played only ${pct(rate(s.vpip))} of hands. When they raise or re-raise they usually have a strong hand, so fold medium pairs and weak aces; but raise their blinds often, since they defend rarely.` });
+      exploits.push({ title: `Respect ${name}'s raises, steal their blinds`, text: `${name} played only ${pct(rate(s.vpip))} of hands. When they raise or re-raise they usually have a strong hand, so fold medium pairs and weak aces; but raise their blinds often, since they defend rarely.` });
     if (s.threeBet.opp >= 8 && rate(s.threeBet) >= 0.12)
-      strategies.push({ title: `Fight back against ${name}'s re-raises`, text: `${name} 3-bet ${pct(rate(s.threeBet))} of the time (${s.threeBet.n} of ${s.threeBet.opp}), far above the usual 6–10%. Call more of their re-raises with good hands like suited broadways and pairs, and 4-bet your premiums.` });
+      exploits.push({ title: `Fight back against ${name}'s re-raises`, text: `${name} 3-bet ${pct(rate(s.threeBet))} of the time (${s.threeBet.n} of ${s.threeBet.opp}), far above the usual 6–10%. Call more of their re-raises with good hands like suited broadways and pairs, and 4-bet your premiums.` });
     if (s.foldTo3Bet.opp >= 4 && rate(s.foldTo3Bet) >= 0.7)
-      strategies.push({ title: `Re-raise ${name} light`, text: `${name} folded to ${pct(rate(s.foldTo3Bet))} of re-raises (${s.foldTo3Bet.n} of ${s.foldTo3Bet.opp}). A 3-bet to about 3× their open wins the pot immediately most of the time, so 3-bet them with suited aces and suited connectors too.` });
+      exploits.push({ title: `Re-raise ${name} light`, text: `${name} folded to ${pct(rate(s.foldTo3Bet))} of re-raises (${s.foldTo3Bet.n} of ${s.foldTo3Bet.opp}). A 3-bet to about 3× their open wins the pot immediately most of the time, so 3-bet them with suited aces and suited connectors too.` });
   }
   if (btnOpen.opp >= 3 && btnOpen.n / btnOpen.opp < 0.35)
     strategies.push({ title: 'Steal more from the button', text: `When it was folded to you on the button you raised ${btnOpen.n} of ${btnOpen.opp} times (${pct(btnOpen.n / btnOpen.opp)}). Strong players open 40–50% there: you act last after the flop, and only the blinds are left to beat.` });
@@ -545,9 +533,14 @@ export function buildReport(inp: ReportInput): MatchReport {
 
   const luck = allInActual - allInEV;
   const summary =
-    `${net >= 0 ? 'You won' : 'You lost'} ${bbs(Math.abs(net), bb)} over ${nHands} hands (${((net / bb / Math.max(1, nHands)) * 100).toFixed(1)} BB per 100 hands). ` +
+    `${net >= 0 ? 'You won' : 'You lost'} ${bbs(Math.abs(net), bb)} over ${nHands} hands (${((net / bb / Math.max(1, nHands)) * 100).toFixed(1).replace('-', '−')} BB per 100 hands). ` +
     `The analysis found ${mistakes.length} costly decision${mistakes.length === 1 ? '' : 's'} worth about ${bbs(lossTotal, bb)} in total (${evLossBB100.toFixed(1)} BB per 100 hands)` +
-    (allInCount ? `, and in all-ins you ran ${luck >= 0 ? 'above' : 'below'} expectation by ${bbs(Math.abs(luck), bb)}.` : '.');
+    (allInCount
+      ? Math.abs(luck) < bb / 2
+        ? ', and your all-ins came out almost exactly as expected.'
+        : `, and in all-ins you ran ${luck >= 0 ? 'above' : 'below'} expectation by ${bbs(Math.abs(luck), bb)}.`
+      : '.') +
+    (nHands < 20 ? ` With only ${nHands} hands, treat the numbers as a rough guide.` : '');
 
   return {
     version: 1,
@@ -566,7 +559,8 @@ export function buildReport(inp: ReportInput): MatchReport {
     byPosition,
     keyHands,
     wellPlayed,
-    strategies: strategies.slice(0, 5),
+    // the player's own habits first, then exploits of the bots' tendencies
+    strategies: [...strategies, ...exploits].slice(0, 5),
     grade,
     evLossBB100,
     mistakesCount: mistakes.length,
@@ -602,6 +596,44 @@ const FOCUS_TEXT: Record<MistakeKind, string> = {
   sizing: 'Choose bet sizes deliberately: bigger with strong hands on wet boards, smaller on dry boards',
   'passive-allin': 'Get your chips in with your strongest hands',
 };
+
+function toNote(d: DecisionAnalysis, action: Action, handId: number): DecisionNote {
+  const c = classify(d);
+  return {
+    handId,
+    street: d.street,
+    position: d.position,
+    hole: d.hole,
+    board: d.board,
+    pot: d.pot,
+    toCall: d.toCall,
+    need: d.need,
+    equity: d.equity,
+    villainName: d.villainName,
+    heroLabel: actionLabel(action),
+    bestLabel: d.best.label,
+    evLoss: d.evLoss,
+    heroEV: d.heroEV,
+    bestEV: d.best.ev,
+    kind: c.kind,
+    text: c.text,
+    options: d.options.map((o) => ({ label: o.label, ev: o.ev })),
+    handName: d.handName,
+    expertAction: actionLabel(d.expert.action),
+  };
+}
+
+/** Coach's notes for one hand (per-hand review), using opponents' stats from earlier hands. */
+export function reviewHand(h: HandState, heroId: string, earlier: readonly HandState[]): DecisionNote[] {
+  const pi = h.players.findIndex((p) => p.id === heroId);
+  if (pi < 0) return [];
+  const st = computeStats(earlier);
+  const models: Record<string, OpponentModel> = {};
+  for (const q of h.players) if (q.id !== heroId) models[q.id] = toModel(st[q.id]);
+  return decisionsOf(h, pi).map((dp) =>
+    toNote(analyzeDecision(dp.view, dp.action, dp.actionIndex, models, h.handId * 31 + dp.actionIndex), dp.action, h.handId),
+  );
+}
 
 function situation(h: HandState, pi: number, d: DecisionAnalysis): string {
   const p = h.players[pi];

@@ -26,6 +26,8 @@ export function rosterFor(d: Difficulty): BotProfile[] {
 interface Props {
   onStart: (s: MatchSetup) => void;
   initial?: Partial<MatchSetup>;
+  reportsCount?: number;
+  onShowReports?: () => void;
 }
 
 function Segmented<T extends string | number>({
@@ -69,7 +71,7 @@ function Segmented<T extends string | number>({
   );
 }
 
-export function SetupScreen({ onStart, initial }: Props) {
+export function SetupScreen({ onStart, initial, reportsCount = 0, onShowReports }: Props) {
   const [numBots, setNumBots] = useState(initial?.numBots ?? 5);
   const [startingBB, setStartingBB] = useState(initial?.startingBB ?? 100);
   const [hands, setHands] = useState(initial?.hands ?? 50);
@@ -109,6 +111,11 @@ export function SetupScreen({ onStart, initial }: Props) {
         >
           Deal me in
         </button>
+        {reportsCount > 0 && onShowReports && (
+          <button className="btn-ghost setup__reports" onClick={onShowReports}>
+            View your last report and progress ({reportsCount} saved)
+          </button>
+        )}
       </div>
     </div>
   );

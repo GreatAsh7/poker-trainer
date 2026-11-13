@@ -4,6 +4,8 @@ import type { HandState } from '../../engine/game';
 import { deriveDisplay, describeEvent } from '../display';
 import { Stage, Table } from './Table';
 import { Modal } from './Modal';
+import { DecisionList } from './ReportScreen';
+import type { DecisionNote } from '../../analysis/coach';
 
 interface Props {
   hand: HandState;
@@ -11,10 +13,25 @@ interface Props {
   tableSize: number;
   bigBlind: number;
   onClose: () => void;
+  /** coach's notes for this hand (computed in the worker) */
+  loadNotes?: () => Promise<DecisionNote[]>;
 }
 
 /** Step-by-step replay of a finished hand (public information only). */
-export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose }: Props) {
+export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose, loadNotes }: Props) {
+  const [notes, setNotes] = useState<DecisionNote[] | null>(null);
+  const [notesErr, setNotesErr] = useState(false);
+  useEffect(() => {
+    if (!loadNotes) return;
+    let live = true;
+    loadNotes()
+      .then((n) => live && setNotes(n))
+      .catch(() => live && setNotesErr(true));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hand.handId]);
   // steps = indexes of events that change what is visible
   const steps = useMemo(() => {
     const out: number[] = [];
@@ -88,6 +105,22 @@ export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose }: Prop
           <span className="replay__last">{lines[lines.length - 1] ?? 'Blinds posted'}</span>
           <span className="replay__count">{step + 1} / {steps.length}</span>
         </div>
+        {loadNotes && heroPi >= 0 && (
+          <div className="replay__notes">
+            <h3>Coach's notes</h3>
+            {notesErr ? (
+              <p className="neg">Could not analyse this hand.</p>
+            ) : !notes ? (
+              <p className="building">
+                <span className="spinner" aria-hidden /> Analysing your decisions…
+              </p>
+            ) : notes.length === 0 ? (
+              <p className="muted">You had no decisions to make in this hand.</p>
+            ) : (
+              <DecisionList notes={notes} bigBlind={bigBlind} />
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   );

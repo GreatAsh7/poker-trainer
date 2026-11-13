@@ -102,15 +102,20 @@ function mixOf(r: Range, board: Card[]): RangeMix | null {
   return { strong: mix.strong / tot, pair: mix.pair / tot, draw: mix.draw / tot, air: mix.air / tot };
 }
 
-/** Share of a range that continues facing a bet of `frac` × pot, and the continuing range. */
-function continuing(r: Range, board: Card[], frac: number): { share: number; range: Range } {
+/**
+ * Share of a range that continues facing a bet that adds `add` into `pot`, and the
+ * continuing range. The bigger the bet, the stronger the hand needed to continue: the
+ * caller's price is add / (pot + 2·add), and the required strength rises with it.
+ */
+function continuing(r: Range, board: Card[], add: number, pot: number): { share: number; range: Range } {
+  const price = add / (pot + 2 * add);
   const out = new Float64Array(NUM_COMBOS);
   if (board.length < 3) {
     // preflop: continue with the top part of the range
     return { share: 0.5, range: r };
   }
   const t = boardTable(board);
-  const thr = 0.45 + 0.18 * clamp(frac, 0.25, 1.5);
+  const thr = clamp(0.4 + 1.1 * price, 0.5, 0.95);
   let tot = 0;
   let cont = 0;
   for (let i = 0; i < NUM_COMBOS; i++) {
@@ -119,7 +124,7 @@ function continuing(r: Range, board: Card[], frac: number): { share: number; ran
     tot += w;
     const s = t.strength[i];
     const d = board.length < 5 ? t.draw[i] : 0;
-    const p = s >= thr ? 1 : d >= 1 ? 0.85 : d >= 0.5 && frac < 0.6 ? 0.4 : s >= thr - 0.15 ? 0.35 : 0.05;
+    const p = s >= thr ? 1 : d >= 1 && price < 0.36 ? 0.85 : d >= 0.5 && price < 0.25 ? 0.4 : s >= thr - 0.12 ? 0.3 : 0.04;
     out[i] = w * p;
     cont += w * p;
   }
@@ -154,7 +159,10 @@ export function analyzeDecision(
   const street = view.street;
   const river = street === 'river';
   // equity realisation: share of raw equity a hand actually wins when there is betting to come
-  const realize = river || la.callIsAllIn ? 1 : street === 'preflop' ? (inPosition ? 0.88 : 0.72) : inPosition ? 0.95 : 0.85;
+  const heroDraw = view.board.length >= 3 && view.board.length < 5 ? drawScore(view.hole, view.board) : 0;
+  let realize = river || la.callIsAllIn ? 1 : street === 'preflop' ? (inPosition ? 0.88 : 0.72) : inPosition ? 0.95 : 0.85;
+  // draws with deep stacks win extra when they hit (implied odds)
+  if (!river && !la.callIsAllIn && heroDraw >= 1 && street !== 'preflop') realize = 1.08;
 
   const options: OptionEV[] = [];
   if (la.canFold) options.push({ kind: 'fold', ev: 0, label: 'Fold' });
@@ -165,12 +173,13 @@ export function analyzeDecision(
   const sizes: { to: number; label: string }[] = [];
   if (la.raiseType && street !== 'preflop') {
     const potAfterCall = pot + toCall;
-    for (const [f, lbl] of [[0.5, '½ pot'], [0.75, '¾ pot'], [1, 'pot']] as const) {
+    for (const [f, lbl] of [[0.33, '⅓ pot'], [0.5, '½ pot'], [0.75, '¾ pot'], [1, 'pot']] as const) {
       const to = Math.round(view.currentBet + f * potAfterCall);
       if (to >= la.minTo && to <= la.maxTo) sizes.push({ to, label: lbl });
     }
     if (heroAction.type === la.raiseType && heroAction.amount) sizes.push({ to: heroAction.amount, label: 'your size' });
-    sizes.push({ to: la.maxTo, label: 'all-in' });
+    // shoving is only a sensible candidate when stacks are shallow compared with the pot
+    if ((la.maxTo - me.streetBet) <= 2.5 * potAfterCall) sizes.push({ to: la.maxTo, label: 'all-in' });
   } else if (la.raiseType && heroAction.type === la.raiseType && heroAction.amount === la.maxTo) {
     sizes.push({ to: la.maxTo, label: 'all-in' });
   }
@@ -179,12 +188,11 @@ export function analyzeDecision(
     if (seen.has(s.to)) continue;
     seen.add(s.to);
     const add = s.to - me.streetBet;
-    const frac = add / Math.max(1, pot);
     // everyone must fold for the bet to win immediately
     let allFold = 1;
     const contRanges: Range[] = [];
     for (let k = 0; k < live.length; k++) {
-      const c = continuing(ranges[k], view.board, frac);
+      const c = continuing(ranges[k], view.board, add, pot);
       allFold *= 1 - c.share;
       contRanges.push(c.range);
     }
@@ -234,7 +242,7 @@ export function analyzeDecision(
     vTot += 1;
   }
   const made = view.board.length >= 3 ? describeHandDetailed(evaluate([...view.hole, ...view.board])) : cls;
-  const dr = view.board.length >= 3 && view.board.length < 5 ? drawScore(view.hole, view.board) : 0;
+  const dr = heroDraw;
   const handName = dr >= 1.5 ? `${made} with a combo draw` : dr >= 1 ? `${made} with a draw` : dr >= 0.5 ? `${made} with a gutshot` : made;
 
   return {
