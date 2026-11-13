@@ -24,7 +24,28 @@ Built:
   20,000 random-hand chip-conservation run.
 
 Design decisions:
-- Moving button (button always advances to the next seat with chips); no dead-button rule.
+- Blind rotation: "big blind always moves forward" (no dead button). Button and SB are the
+  live seats right before the BB; heads-up, the non-BB player is button + SB.
 - Folding when checking is free is not offered (engine rejects it).
 - An opening bet smaller than 1 BB (all-in) still gives others a full decision; the next
   min raise is then that bet + 1 BB.
+- When anyone is all-in at showdown every live hand is tabled; on an all-in run-out the
+  hands are turned up (`reveal` events) before the remaining board is dealt.
+
+### Critic round (Milestone 1)
+- strategy-critic: **Not ready (0 blockers, 1 major)** → major (player posted BB twice when
+  the table went heads-up) fixed with the BB-moves-forward rule + tests. Minors fixed: blind
+  skipping on busts, pointless "call 1" for a HU SB facing a short-all-in BB, river all-in
+  losers now shown, sub-BB opening bet min-raise covered by a test.
+- ui-critic (engine API review): **Not ready (0 blockers, 5 majors)** → all fixed:
+  actions can carry `pi`/`seq` and stale/out-of-turn actions are rejected; `reveal` events +
+  `runout` flag on street events; `publicHand(state, viewer)` strips the deck and untabled
+  hole cards (UI renders only from it); match layer is now immutable
+  (`dealNextHand` returns `{match, hand}`); detailed hand names with kickers
+  (`describeHandDetailed`) used in show/award events. Also added `callIsAllIn`,
+  `raiseAllInOnly`, `matchOverReason`.
+- No blockers in either review, so no re-run was required.
+
+## Deferred
+- (M1 ui minor) readonly types, per-event seq numbers, collect events, side-pot-first award
+  order, best-five in show events — the display layer derives these.

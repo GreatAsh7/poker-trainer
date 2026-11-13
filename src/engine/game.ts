@@ -10,7 +10,7 @@
  * - `applyAction` never mutates its input; it returns a new state.
  */
 import type { Card } from './cards';
-import { evaluate, describeHand } from './evaluator';
+import { evaluate, describeHandDetailed } from './evaluator';
 
 export type Street = 'preflop' | 'flop' | 'turn' | 'river';
 export const STREETS: Street[] = ['preflop', 'flop', 'turn', 'river'];
@@ -54,6 +54,10 @@ export interface Action {
   type: ActionType;
   /** for bet/raise: total street commitment after the action ("raise to") */
   amount?: number;
+  /** optional: the player index this action is meant for; rejected if it is not their turn */
+  pi?: number;
+  /** optional: expected number of actions already taken this hand (guards stale double-submits) */
+  seq?: number;
 }
 
 export interface ActionRecord {
@@ -94,7 +98,9 @@ export type HandEvent =
   | { kind: 'post'; pi: number; blind: 'sb' | 'bb'; amount: number; allIn: boolean }
   | { kind: 'deal' }
   | { kind: 'action'; record: ActionRecord }
-  | { kind: 'street'; street: Street; cards: Card[] }
+  | { kind: 'street'; street: Street; cards: Card[]; runout: boolean }
+  /** all-in and betting closed: live hands are turned face up before the run-out */
+  | { kind: 'reveal'; pi: number; cards: Card[] }
   | { kind: 'refund'; pi: number; amount: number }
   | { kind: 'show'; pi: number; cards: Card[]; value: number; handName: string }
   | { kind: 'muck'; pi: number }
@@ -163,7 +169,20 @@ export const nextPi = (s: HandState, pi: number) => (pi + 1) % n(s);
 export const potTotal = (s: HandState) => s.players.reduce((a, p) => a + p.totalBet, 0);
 
 const canAct = (p: PlayerState) => !p.folded && !p.allIn;
-const needsToAct = (s: HandState, p: PlayerState) => canAct(p) && (!p.hasActed || p.streetBet < s.currentBet);
+function needsToAct(s: HandState, p: PlayerState): boolean {
+  if (!canAct(p) || (p.hasActed && p.streetBet >= s.currentBet)) return false;
+  // Nobody else can act and this player already covers every live bet: no real decision
+  // (e.g. heads-up small blind facing a big blind that posted all-in for less).
+  let othersCanAct = false;
+  let maxOther = 0;
+  for (const q of s.players) {
+    if (q === p || q.folded) continue;
+    if (!q.allIn) othersCanAct = true;
+    maxOther = Math.max(maxOther, q.streetBet);
+  }
+  if (!othersCanAct && p.streetBet >= maxOther) return false;
+  return true;
+}
 const liveCount = (s: HandState) => s.players.reduce((a, p) => a + (p.folded ? 0 : 1), 0);
 const actorCount = (s: HandState) => s.players.reduce((a, p) => a + (canAct(p) ? 1 : 0), 0);
 
@@ -294,6 +313,10 @@ export interface LegalActions {
   minTo: number;
   /** maximum raise-to (all-in) */
   maxTo: number;
+  /** calling puts the player all-in */
+  callIsAllIn: boolean;
+  /** the only legal bet/raise is all-in (minTo === maxTo) */
+  raiseAllInOnly: boolean;
 }
 
 export function legalActions(s: HandState): LegalActions | null {
@@ -325,6 +348,8 @@ export function legalActions(s: HandState): LegalActions | null {
     raiseType,
     minTo: raiseType ? minTo : 0,
     maxTo: raiseType ? maxTo : 0,
+    callIsAllIn: toCall > 0 && toCall >= p.stack,
+    raiseAllInOnly: !!raiseType && minTo === maxTo,
   };
 }
 
@@ -332,6 +357,8 @@ export function legalActions(s: HandState): LegalActions | null {
 export function validateAction(s: HandState, a: Action): string | null {
   const la = legalActions(s);
   if (!la) return 'hand is not waiting for an action';
+  if (a.pi !== undefined && a.pi !== s.toAct) return 'not this player’s turn';
+  if (a.seq !== undefined && a.seq !== s.actions.length) return 'stale action';
   switch (a.type) {
     case 'fold':
       return la.canFold ? null : 'cannot fold when checking is free';
@@ -466,7 +493,14 @@ function closeRound(s: HandState) {
       showdown(s);
       return;
     }
-    if (actorCount(s) <= 1) s.runout = true;
+    if (actorCount(s) <= 1 && !s.runout) {
+      s.runout = true;
+      // turn every live hand face up before the remaining board is dealt
+      for (let k = 1; k <= n(s); k++) {
+        const pi = (s.buttonPi + k) % n(s);
+        if (!s.players[pi].folded) s.events.push({ kind: 'reveal', pi, cards: s.players[pi].hole });
+      }
+    }
     dealNextStreet(s);
     if (!s.runout) {
       s.toAct = findNext(s, s.buttonPi, (q) => needsToAct(s, q));
@@ -491,7 +525,7 @@ function dealNextStreet(s: HandState) {
     p.hasActed = false;
     p.actedAtBet = 0;
   }
-  s.events.push({ kind: 'street', street, cards });
+  s.events.push({ kind: 'street', street, cards, runout: s.runout });
 }
 
 function finishUncontested(s: HandState) {
@@ -560,9 +594,11 @@ function showdown(s: HandState) {
   // In an all-in run-out every hand is tabled. Otherwise a player shows only if they can
   // still win or tie a pot they are in, given the hands already shown; else they muck.
   const bestShown = s.pots.map(() => -1);
+  // When anyone is all-in (or the board was run out) every live hand is tabled.
+  const allShow = s.runout || live.some((pi) => s.players[pi].allIn);
   for (const pi of order) {
     const v = s.values[pi];
-    let show = s.runout;
+    let show = allShow;
     s.pots.forEach((pot, k) => {
       if (pot.eligible.includes(pi) && v >= bestShown[k]) show = true;
     });
@@ -571,7 +607,7 @@ function showdown(s: HandState) {
       s.pots.forEach((pot, k) => {
         if (pot.eligible.includes(pi)) bestShown[k] = Math.max(bestShown[k], v);
       });
-      s.events.push({ kind: 'show', pi, cards: s.players[pi].hole, value: v, handName: describeHand(v) });
+      s.events.push({ kind: 'show', pi, cards: s.players[pi].hole, value: v, handName: describeHandDetailed(v) });
     } else {
       s.events.push({ kind: 'muck', pi });
     }
@@ -593,7 +629,7 @@ function showdown(s: HandState) {
       s.players[pi].stack += shares[j];
       s.won[pi] += shares[j];
     });
-    const award: PotAward = { potIndex: k, amount: pot.amount, winners, shares, handName: describeHand(best) };
+    const award: PotAward = { potIndex: k, amount: pot.amount, winners, shares, handName: describeHandDetailed(best) };
     s.awards.push(award);
     s.events.push({ kind: 'award', award });
   });

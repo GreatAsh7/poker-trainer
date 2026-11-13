@@ -131,6 +131,34 @@ export function describeHand(value: number): string {
   }
 }
 
+const kick = (r: number) => (r === 8 ? 'Ten' : RANK_NAMES[r]);
+
+/**
+ * Name including the ranks that break ties, e.g. "Pair of Aces, King kicker",
+ * "Two pair, Kings and Sevens, Ace kicker", "Flush, Ace-Queen high", "Ace-King high".
+ */
+export function describeHandDetailed(value: number): string {
+  const cat = categoryOf(value);
+  const r = [0, 1, 2, 3, 4].map((i) => nib(value, i));
+  const seq = (xs: number[]) => xs.map((x) => (x === 8 ? 'Ten' : RANK_NAMES[x])).join('-');
+  switch (cat) {
+    case Category.Quads:
+      return `Four of a kind, ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+    case Category.Flush:
+      return `Flush, ${seq(r.slice(0, 2))} high`;
+    case Category.Trips:
+      return `Three of a kind, ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+    case Category.TwoPair:
+      return `Two pair, ${RANK_PLURALS[r[0]]} and ${RANK_PLURALS[r[1]]}, ${kick(r[2])} kicker`;
+    case Category.Pair:
+      return `Pair of ${RANK_PLURALS[r[0]]}, ${kick(r[1])} kicker`;
+    case Category.HighCard:
+      return `${seq(r.slice(0, 2))} high`;
+    default:
+      return describeHand(value);
+  }
+}
+
 /** Which of the given cards make up the best 5-card hand (for highlighting at showdown). */
 export function bestFive(cards: readonly Card[]): Card[] {
   const target = evaluate(cards);
