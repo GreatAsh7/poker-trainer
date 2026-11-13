@@ -41,6 +41,8 @@ export interface LogLine {
 export interface HandLog {
   handId: number;
   lines: LogLine[];
+  /** hero's result once the hand is over */
+  net?: number;
 }
 
 export type Phase = 'idle' | 'playing' | 'handOver' | 'matchOver';
@@ -362,13 +364,21 @@ export class TableController {
         const pub = publicHand(h, -1);
         addHand(this.stats, pub);
         this.models = Object.fromEntries(Object.entries(this.stats).map(([id, s]) => [id, toModel(s)]));
+        const heroNet = h.won[userPi] - h.players[userPi].totalBet;
+        const logs = this.snap.logs.map((l) =>
+          l.handId === h.handId
+            ? { ...l, net: heroNet }
+            : l,
+        );
         this.set({
+          logs,
           history: [...this.snap.history, publicHand(h, userPi)].slice(-200),
           phase: 'handOver',
           match: m,
         });
         if (this.settings.autoNextHand) {
-          await this.sleep(1700 * this.settings.pace, gen);
+          // give the player time to read a showdown (Space / "Next hand" skips)
+          await this.sleep(h.showdown ? Math.max(2600, 4200 * this.settings.pace) : 1700 * this.settings.pace, gen);
         } else {
           await new Promise<void>((resolve) => {
             this.nextHandResolver = resolve;

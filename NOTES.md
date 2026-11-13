@@ -69,3 +69,26 @@ Built:
 - Four-colour deck; reduced motion via `MotionConfig reducedMotion="user"` + CSS.
 - Playwright smoke test `tests/e2e/smoke.spec.ts` (uses installed Chrome: `npm run e2e`).
 - Dev helpers: `scripts/shoot.mjs`, `scripts/shoot-replay.mjs` (screenshots with Playwright).
+
+### Critic round (Milestone 2)
+- strategy-critic: **Not ready (0 blockers, 2 majors)** → fixed: pot odds now count only
+  chips you can win (all-in-for-less / side-pot cases, `potOdds()` in presets.ts + tests);
+  side-pot list no longer shows awarded pots. Minors fixed: `publicHand` now cuts events,
+  board and actions to what has been shown; iso-raise sizes over limpers, 2.2x/2.5x 4-bet
+  presets, clearer raise tooltips; showdown log lines include the cards; "Uncalled bet (N)
+  returned"; full board on turn/river log lines; BB all-in posts marked; consistent minus
+  signs; HUD ignores walks. New tests: tests/unit/ui-logic.test.ts (pots add up and no hidden
+  cards at every display step over 2,000 random hands).
+- ui-critic: **Not ready (0 blockers, 6 majors)** → fixed: 1024-wide layout (log becomes a
+  drawer below 1280 px, no empty column); action labels moved beside the nameplate, hand
+  name replaces the HUD badge at showdown, labels cleared when cards are tabled; Enter on a
+  preset submits the raise; shortcuts work after clicking HUD/Fast; side pots readable and
+  correctly named during awards, busted players show 0; showdowns held ~4 s with a "Next
+  hand (Space)" button. Minors fixed: slider arrows step by 1 BB, per-hand result in the log
+  and no forced scrolling, bigger replay table, leave dialog focuses "Keep playing", setup
+  radio groups use arrow keys/roving tabindex, always five presets, dealer button no longer
+  under labels.
+- No blockers, so no re-run was required.
+
+Deferred (M2 minors): refund chips don't visibly slide back to the bettor; hot-reload during
+dev stops a running match (dev only).

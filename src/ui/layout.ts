@@ -10,11 +10,11 @@ export interface Pt {
 /** Six layout slots, clockwise starting from the hero at the bottom. */
 const SLOTS: { seat: Pt; bet: Pt; button: Pt }[] = [
   { seat: { x: 550, y: 560 }, bet: { x: 550, y: 414 }, button: { x: 668, y: 470 } },
-  { seat: { x: 150, y: 462 }, bet: { x: 305, y: 404 }, button: { x: 262, y: 470 } },
-  { seat: { x: 150, y: 184 }, bet: { x: 305, y: 232 }, button: { x: 262, y: 172 } },
+  { seat: { x: 150, y: 462 }, bet: { x: 305, y: 404 }, button: { x: 250, y: 424 } },
+  { seat: { x: 150, y: 184 }, bet: { x: 305, y: 232 }, button: { x: 250, y: 140 } },
   { seat: { x: 550, y: 96 }, bet: { x: 550, y: 178 }, button: { x: 668, y: 140 } },
-  { seat: { x: 950, y: 184 }, bet: { x: 795, y: 232 }, button: { x: 838, y: 172 } },
-  { seat: { x: 950, y: 462 }, bet: { x: 795, y: 404 }, button: { x: 838, y: 470 } },
+  { seat: { x: 950, y: 184 }, bet: { x: 795, y: 232 }, button: { x: 850, y: 140 } },
+  { seat: { x: 950, y: 462 }, bet: { x: 795, y: 404 }, button: { x: 850, y: 424 } },
 ];
 
 const SLOT_MAP: Record<number, number[]> = {

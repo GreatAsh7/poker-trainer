@@ -108,6 +108,16 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
   let finished = false;
   let currentBet = 0;
 
+  let labelsCleared = false;
+  const clearLabels = () => {
+    if (labelsCleared) return;
+    labelsCleared = true;
+    for (const s of seats) {
+      if (s.labelKind === 'win') continue;
+      s.label = null;
+      s.labelKind = null;
+    }
+  };
   const collect = () => {
     let any = false;
     for (const s of seats) {
@@ -163,6 +173,10 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
         s.bet -= e.amount;
         totals[e.pi] -= e.amount;
         if (s.stack > 0) s.allIn = false;
+        if (s.labelKind === 'allin' && s.bet > 0) {
+          s.label = `Bet ${s.bet}`;
+          s.labelKind = 'bet';
+        }
         break;
       }
       case 'street':
@@ -178,9 +192,11 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
         }
         break;
       case 'reveal':
+        clearLabels();
         seats[e.pi].cards = [...e.cards];
         break;
       case 'show': {
+        clearLabels();
         const s = seats[e.pi];
         s.cards = [...e.cards];
         s.handName = e.handName;
@@ -221,7 +237,7 @@ export function deriveDisplay(h: HandState, k: number, viewerPi: number): TableD
     if (ps.length > 1) {
       const awarded = new Set(awards.map((a) => a.potIndex));
       const open = ps.map((p, i) => ({ amount: p.amount, label: i === 0 ? 'Main pot' : `Side pot ${i}` })).filter((_, i) => !awarded.has(i));
-      if (open.length > 1) pots = open;
+      if (open.length >= 1) pots = open;
     }
   }
   return {
@@ -279,7 +295,7 @@ export function describeEvent(h: HandState, i: number, viewerPi: number): string
       return `${name(e.pi)} ${e.pi === viewerPi ? 'muck' : 'mucks'}`;
     case 'award': {
       const a = e.award;
-      const potName = h.awards.length > 1 || a.potIndex > 0 ? (a.potIndex === 0 ? 'main pot' : `side pot ${a.potIndex}`) : 'pot';
+      const potName = h.pots.length > 1 || a.potIndex > 0 ? (a.potIndex === 0 ? 'main pot' : `side pot ${a.potIndex}`) : 'pot';
       if (a.winners.length === 1) {
         const w = a.winners[0];
         return `${name(w)} ${w === viewerPi ? 'win' : 'wins'} ${a.amount} (${potName})${a.handName && h.showdown ? ` with ${a.handName}` : ''}`;

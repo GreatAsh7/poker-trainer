@@ -212,10 +212,11 @@ export const Table = memo(function Table(props: TableProps) {
           hud={hud?.[s.id] ?? null}
           bigBlind={bigBlind}
           showdown={winnersShown}
+          handOver={d.finished}
         />
       ))}
 
-      {heroSeat && props.center}
+      {heroSeat && props.center && <div className="table__center">{props.center}</div>}
     </div>
   );
 });
@@ -234,6 +235,7 @@ interface SeatProps {
   hud: SeatHud | null;
   bigBlind: number;
   showdown: boolean;
+  handOver: boolean;
 }
 
 const SeatView = memo(function SeatView(p: SeatProps) {
@@ -248,6 +250,8 @@ const SeatView = memo(function SeatView(p: SeatProps) {
     s.allIn ? 'seat--allin' : '',
   ].join(' ');
   const showCards = s.hasCards || (s.cards && s.cards.length > 0 && !s.folded);
+  const labelSide = !hero && slot.seat.x > 700 ? 'left' : 'right';
+  const showHandName = !!s.handName && p.showdown && !s.mucked;
   const dx = DEALER_PT.x - slot.seat.x;
   const dy = DEALER_PT.y - slot.seat.y;
   return (
@@ -283,7 +287,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
         <div className="seat__info">
           <div className="seat__name">{hero ? 'You' : s.name}</div>
           <div className="seat__stack">
-            {s.stack > 0 || !s.allIn ? (
+            {s.stack > 0 || !s.allIn || p.handOver ? (
               <>
                 <span className="seat__chips">{fmtChips(s.stack)}</span>
                 <span className="seat__bb">{fmtBB(s.stack, p.bigBlind)}</span>
@@ -295,7 +299,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
         </div>
       </div>
 
-      {p.hud && !hero && (
+      {p.hud && !hero && !showHandName && (
         <div className="seat__hud" title={`Over ${p.hud.hands} hands: VPIP = how often they put money in preflop; PFR = how often they raise preflop`}>
           <span className="seat__hud-style">{p.hud.style}</span>
           <span>
@@ -304,7 +308,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
         </div>
       )}
 
-      <div className="seat__label-wrap">
+      <div className={`seat__label-wrap seat__label-wrap--${labelSide}`}>
       <AnimatePresence>
         {s.label && (
           <motion.div
@@ -321,7 +325,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
       </AnimatePresence>
       </div>
 
-      {s.handName && p.showdown && !s.mucked && <div className="seat__handname">{s.handName}</div>}
+      {showHandName && <div className={`seat__handname ${s.winner ? 'seat__handname--win' : ''}`}>{s.handName}</div>}
     </div>
   );
 });

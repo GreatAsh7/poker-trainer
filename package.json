@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "sim": "tsx scripts/sim.ts"
+    "sim": "tsx scripts/sim.ts",
+    "sim:ring": "tsx scripts/ring.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",

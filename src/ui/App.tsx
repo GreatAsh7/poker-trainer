@@ -62,7 +62,8 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      const type = t && t.tagName === 'INPUT' ? (t as HTMLInputElement).type : '';
+      if (type === 'number' || type === 'text' || (t && t.tagName === 'TEXTAREA')) return;
       if (document.querySelector('.modal')) return;
       if (e.key === ' ' && screen === 'table') {
         e.preventDefault();
@@ -133,10 +134,10 @@ export function App() {
           </div>
           <div className="topbar__actions">
             <label className="chk" title="Show each bot's style and stats (H)">
-              <input type="checkbox" checked={showHud} onChange={(e) => setShowHud(e.target.checked)} /> HUD
+              <input type="checkbox" checked={showHud} onChange={(e) => { setShowHud(e.target.checked); e.target.blur(); }} /> HUD
             </label>
             <label className="chk" title="Faster animations and bot decisions">
-              <input type="checkbox" checked={fast} onChange={(e) => setFast(e.target.checked)} /> Fast
+              <input type="checkbox" checked={fast} onChange={(e) => { setFast(e.target.checked); e.target.blur(); }} /> Fast
             </label>
             <button className="btn-ghost" onClick={() => setShowLog((v) => !v)} title="Show or hide the hand log (L)">
               {showLog ? 'Hide log' : 'Show log'}
@@ -161,6 +162,13 @@ export function App() {
                 thinkDuration={snap.thinkDuration}
                 hud={hud}
                 bigBlind={bb}
+                center={
+                  snap.phase === 'handOver' && !modalOpen ? (
+                    <button className="next-hand" onClick={(e) => { e.stopPropagation(); ctrl.skip(); }} data-testid="next-hand">
+                      Next hand <kbd>Space</kbd>
+                    </button>
+                  ) : null
+                }
               />
             </Stage>
           )}
@@ -230,11 +238,11 @@ export function App() {
           <Modal key="leave" title="Leave this match?" onClose={() => setConfirmLeave(false)}>
             <p>Your progress in this match will be lost.</p>
             <div className="matchover__actions">
-              <button className="btn btn--fold" onClick={() => { ctrl.stop(); setConfirmLeave(false); setScreen('setup'); }}>
-                Leave match
-              </button>
-              <button className="btn" onClick={() => setConfirmLeave(false)} autoFocus>
+              <button className="btn btn--primary" onClick={() => setConfirmLeave(false)} data-autofocus>
                 Keep playing
+              </button>
+              <button className="btn btn--danger-outline" onClick={() => { ctrl.stop(); setConfirmLeave(false); setScreen('setup'); }}>
+                Leave match
               </button>
             </div>
           </Modal>

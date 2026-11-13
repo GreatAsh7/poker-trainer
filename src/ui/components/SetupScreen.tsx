@@ -43,11 +43,21 @@ function Segmented<T extends string | number>({
         {label}
       </span>
       <div className="segmented" role="radiogroup" aria-labelledby={`lbl-${label}`}>
-        {options.map((o) => (
+        {options.map((o, i) => (
           <button
             key={String(o)}
             role="radio"
             aria-checked={o === value}
+            tabIndex={o === value ? 0 : -1}
+            onKeyDown={(e) => {
+              const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+              if (!d) return;
+              e.preventDefault();
+              const next = options[(i + d + options.length) % options.length];
+              onChange(next);
+              const sib = (e.currentTarget.parentElement?.children[(i + d + options.length) % options.length] as HTMLElement | undefined);
+              sib?.focus();
+            }}
             className={`segmented__opt ${o === value ? 'segmented__opt--on' : ''}`}
             onClick={() => onChange(o)}
           >

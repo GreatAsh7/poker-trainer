@@ -38,6 +38,7 @@ export function presetsFor(c: PresetContext): Preset[] {
     const L = c.limpers;
     add(`${3 + L}x`, (3 + L) * c.bigBlind, `Isolation raise: 3 big blinds plus 1 per limper (${L})`);
     add(`${4 + L}x`, (4 + L) * c.bigBlind, 'Bigger isolation raise: 4 big blinds plus 1 per limper');
+    add(`${5 + L}x`, (5 + L) * c.bigBlind, 'Large isolation raise: 5 big blinds plus 1 per limper');
     add('Pot', potFractionTo(c, 1), 'Pot-sized raise');
   } else if (c.street === 'preflop' && c.preflopRaises === 0) {
     add('2.5x', 2.5 * c.bigBlind, 'Raise to 2.5 big blinds');
@@ -45,12 +46,14 @@ export function presetsFor(c: PresetContext): Preset[] {
     add('4x', 4 * c.bigBlind, 'Raise to 4 big blinds');
     add('Pot', potFractionTo(c, 1), 'Pot-sized raise');
   } else if (c.street === 'preflop' && c.preflopRaises === 1) {
+    add('2.5x', 2.5 * c.currentBet, 'Small 3-bet: 2.5 times the open');
     add('3x', 3 * c.currentBet, '3-bet to 3 times the open (standard in position)');
     add('4x', 4 * c.currentBet, '3-bet to 4 times the open (standard out of position)');
     add('Pot', potFractionTo(c, 1), 'Pot-sized raise');
   } else if (c.street === 'preflop') {
     add('2.2x', 2.2 * c.currentBet, 'Re-raise to 2.2 times the current bet (standard 4-bet size)');
     add('2.5x', 2.5 * c.currentBet, 'Re-raise to 2.5 times the current bet');
+    add('3x', 3 * c.currentBet, 'Re-raise to 3 times the current bet');
     add('Pot', potFractionTo(c, 1), 'Pot-sized raise');
   } else {
     const how = 'Raise: call, then add';

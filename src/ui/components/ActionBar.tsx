@@ -76,8 +76,10 @@ export function ActionBar(p: Props) {
       if (!h.active || e.ctrlKey || e.metaKey || e.altKey) return;
       if (document.querySelector('.modal')) return; // dialogs own the keyboard
       const target = e.target as HTMLElement | null;
-      const inText = target && (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number');
-      if (target && target.tagName === 'INPUT' && !inText && (target as HTMLInputElement).type !== 'range') return;
+      const type = target && target.tagName === 'INPUT' ? (target as HTMLInputElement).type : '';
+      const inText = type === 'number';
+      // only real text fields swallow shortcuts (checkboxes, sliders and buttons don't)
+      if (type === 'text' || type === 'search' || type === 'email') return;
       if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return;
       const k = e.key.toLowerCase();
       if (inText) {
@@ -94,11 +96,11 @@ export function ActionBar(p: Props) {
         e.preventDefault();
         h.checkCall();
       } else if (k === 'r' || k === 'b' || k === 'enter') {
-        if (target && target.tagName === 'BUTTON' && k === 'enter') return; // let focused buttons work
+        // Enter on a focused action button activates it natively; on a preset it submits the raise
+        if (target && target.tagName === 'BUTTON' && k === 'enter' && !target.classList.contains('preset') && !target.classList.contains('sizer__step')) return;
         e.preventDefault();
         h.raise();
       } else if (h.legal?.raiseType && (k === 'arrowup' || k === 'arrowright' || k === 'arrowdown' || k === 'arrowleft')) {
-        if (target && (target as HTMLInputElement).type === 'range') return; // native slider keys
         e.preventDefault();
         const dir = k === 'arrowup' || k === 'arrowright' ? 1 : -1;
         h.setAmount(h.raiseTo + dir * stepFor(h.bb) * (e.shiftKey ? 5 : 1));

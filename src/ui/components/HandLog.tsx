@@ -14,9 +14,10 @@ export function HandLog({ logs, currentHandId, onReplay, finished, onClose }: Pr
   const body = useRef<HTMLDivElement>(null);
   const [openIds, setOpenIds] = useState<Set<number>>(new Set());
   const lastLen = logs.length ? logs[logs.length - 1].lines.length : 0;
+  const stick = useRef(true);
   useEffect(() => {
     const el = body.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [lastLen, logs.length]);
   const recent = logs.slice(-12);
   const lastFinished = [...finished].sort((a, b) => b - a)[0];
@@ -38,7 +39,14 @@ export function HandLog({ logs, currentHandId, onReplay, finished, onClose }: Pr
           </button>
         </div>
       </div>
-      <div className="log__body" ref={body}>
+      <div
+        className="log__body"
+        ref={body}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
         {recent.length === 0 && <p className="log__empty">Actions will appear here as the hand plays out.</p>}
         {recent.map((l) => {
           const isCurrent = l.handId === currentHandId;
@@ -57,6 +65,12 @@ export function HandLog({ logs, currentHandId, onReplay, finished, onClose }: Pr
                 aria-expanded={open}
               >
                 <span>{l.lines[0]?.text}</span>
+                {l.net !== undefined && (
+                  <span className={`log__net ${l.net > 0 ? 'pos' : l.net < 0 ? 'neg' : ''}`}>
+                    {l.net > 0 ? '+' : l.net < 0 ? '−' : ''}
+                    {Math.abs(l.net)}
+                  </span>
+                )}
                 {!isCurrent && <span className="log__chev">{open ? '▾' : '▸'}</span>}
               </button>
               {open && (

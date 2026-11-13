@@ -11,13 +11,16 @@ interface Props {
 /** Accessible modal: focus moves in, Escape closes, focus returns on close. */
 export function Modal({ title, onClose, children, wide }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
+    const auto = ref.current?.querySelector<HTMLElement>('[data-autofocus]');
+    (auto ?? ref.current)?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onClose) {
+      if (e.key === 'Escape' && closeRef.current) {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
       }
       if (e.key === 'Tab' && ref.current) {
         const f = ref.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select, [tabindex="0"]');
@@ -38,7 +41,7 @@ export function Modal({ title, onClose, children, wide }: Props) {
       window.removeEventListener('keydown', onKey, true);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
       <motion.div
