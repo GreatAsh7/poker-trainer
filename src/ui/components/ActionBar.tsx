@@ -1,0 +1,257 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Action, LegalActions, Street } from '../../engine/game';
+import { clampTo, defaultRaiseTo, presetsFor, stepFor, type PresetContext } from '../presets';
+import { fmtBB, fmtChips } from '../format';
+
+interface Props {
+  legal: LegalActions | null;
+  street: Street;
+  pot: number;
+  currentBet: number;
+  bigBlind: number;
+  preflopRaised: boolean;
+  /** text shown when it is not the hero's turn */
+  waitingText: string;
+  onAct: (a: Action) => void;
+  /** monotonically increasing id of the decision (resets the slider) */
+  decisionKey: string;
+}
+
+const PLACEHOLDER_PRESETS = ['⅓', '½', '⅔', 'Pot', 'All-in'].map((label) => ({ label, to: -1, hint: label }));
+
+export function ActionBar(p: Props) {
+  const { legal } = p;
+  const ctx: PresetContext | null = legal
+    ? { legal, street: p.street, pot: p.pot, currentBet: p.currentBet, bigBlind: p.bigBlind, preflopRaised: p.preflopRaised }
+    : null;
+  const presets = useMemo(() => (ctx ? presetsFor(ctx) : []), [p.decisionKey, !!legal]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [raiseTo, setRaiseTo] = useState(0);
+  const [text, setText] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // new decision → reset amount and unlock
+  useEffect(() => {
+    if (ctx && legal?.raiseType) {
+      const d = defaultRaiseTo(ctx);
+      setRaiseTo(d);
+      setText(String(d));
+    }
+    setSubmitted(false);
+  }, [p.decisionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const active = !!legal && !submitted;
+  const parsed = Number(text);
+  const textValid =
+    !!legal?.raiseType && text.trim() !== '' && Number.isInteger(parsed) && parsed >= legal.minTo && parsed <= legal.maxTo;
+
+  const send = (a: Action) => {
+    if (!active) return;
+    setSubmitted(true); // lock immediately: no double submits
+    p.onAct(a);
+  };
+  const fold = () => legal?.canFold && send({ type: 'fold' });
+  const checkCall = () => legal && send(legal.canCall ? { type: 'call' } : { type: 'check' });
+  const raise = () => {
+    if (!legal?.raiseType || !textValid) return;
+    send({ type: legal.raiseType, amount: parsed });
+  };
+  const setAmount = (v: number) => {
+    if (!legal?.raiseType) return;
+    const c = clampTo(legal, v);
+    setRaiseTo(c);
+    setText(String(c));
+  };
+
+  // keyboard shortcuts
+  const handlers = useRef({ fold, checkCall, raise, setAmount, raiseTo, active, legal, bb: p.bigBlind });
+  handlers.current = { fold, checkCall, raise, setAmount, raiseTo, active, legal, bb: p.bigBlind };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const h = handlers.current;
+      if (!h.active || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector('.modal')) return; // dialogs own the keyboard
+      const target = e.target as HTMLElement | null;
+      const inText = target && (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number');
+      if (target && target.tagName === 'INPUT' && !inText && (target as HTMLInputElement).type !== 'range') return;
+      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) return;
+      const k = e.key.toLowerCase();
+      if (inText) {
+        if (k === 'enter') {
+          e.preventDefault();
+          h.raise();
+        }
+        return;
+      }
+      if (k === 'f') {
+        e.preventDefault();
+        h.fold();
+      } else if (k === 'c' || k === 'k') {
+        e.preventDefault();
+        h.checkCall();
+      } else if (k === 'r' || k === 'b' || k === 'enter') {
+        if (target && target.tagName === 'BUTTON' && k === 'enter') return; // let focused buttons work
+        e.preventDefault();
+        h.raise();
+      } else if (h.legal?.raiseType && (k === 'arrowup' || k === 'arrowright' || k === 'arrowdown' || k === 'arrowleft')) {
+        if (target && (target as HTMLInputElement).type === 'range') return; // native slider keys
+        e.preventDefault();
+        const dir = k === 'arrowup' || k === 'arrowright' ? 1 : -1;
+        h.setAmount(h.raiseTo + dir * stepFor(h.bb) * (e.shiftKey ? 5 : 1));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const toCall = legal?.toCall ?? 0;
+  const potOdds = toCall > 0 ? toCall / (p.pot + toCall) : 0;
+  const raiseLabel = legal?.raiseType === 'bet' ? 'Bet' : 'Raise to';
+  const allIn = legal && legal.raiseType && raiseTo === legal.maxTo;
+
+  return (
+    <div className={`actionbar ${active ? 'actionbar--active' : ''}`} data-testid="actionbar">
+      <div className="actionbar__info" aria-live="polite">
+        {active && legal ? (
+          toCall > 0 ? (
+            <>
+              <span>
+                To call <strong>{fmtChips(legal.callAmount)}</strong>
+                {legal.callIsAllIn && ' (all-in)'}
+              </span>
+              <span className="dot">·</span>
+              <span>
+                Pot <strong>{fmtChips(p.pot)}</strong>
+              </span>
+              <span className="dot">·</span>
+              <span title="Pot odds: the share of the final pot you pay to call. If your chance of winning is higher than this, calling makes money in the long run.">
+                Pot odds <strong>{((1 - potOdds) / potOdds).toFixed(1)} : 1</strong> — you need{' '}
+                <strong>{(potOdds * 100).toFixed(1)}%</strong> equity to call
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="actionbar__yourturn">Your turn</span>
+              <span className="dot">·</span>
+              <span>
+                Pot <strong>{fmtChips(p.pot)}</strong>
+              </span>
+              <span className="dot">·</span>
+              <span>No bet to you — you can check for free</span>
+            </>
+          )
+        ) : (
+          <span className="actionbar__waiting">{p.waitingText}</span>
+        )}
+      </div>
+
+      <div className="actionbar__row">
+        <div className="actionbar__main">
+          <button
+            className="btn btn--fold"
+            disabled={!active || !legal?.canFold}
+            onClick={fold}
+            data-testid="btn-fold"
+            title="Fold (F)"
+          >
+            Fold
+            <kbd>F</kbd>
+          </button>
+          <button className="btn btn--call" disabled={!active} onClick={checkCall} data-testid="btn-call" title="Check / Call (C)">
+            {active && legal?.canCall ? (
+              <>
+                Call <span className="btn__amt">{fmtChips(legal.callAmount)}</span>
+              </>
+            ) : (
+              'Check'
+            )}
+            <kbd>C</kbd>
+          </button>
+          <button
+            className="btn btn--raise"
+            disabled={!active || !legal?.raiseType || !textValid}
+            onClick={raise}
+            data-testid="btn-raise"
+            title={`${raiseLabel} (R or Enter)`}
+          >
+            {!active ? 'Raise' : allIn ? 'All-in' : raiseLabel}{' '}
+            <span className="btn__amt">{active && legal?.raiseType ? fmtChips(textValid ? parsed : raiseTo) : ''}</span>
+            <kbd>R</kbd>
+          </button>
+        </div>
+
+        <div className={`actionbar__sizing ${legal?.raiseType && active ? '' : 'actionbar__sizing--off'}`}>
+          <div className="presets">
+            {(presets.length ? presets : PLACEHOLDER_PRESETS).map((pr) => (
+              <button
+                key={pr.label}
+                className={`preset ${active && pr.to === raiseTo && (presets.length ? presets : PLACEHOLDER_PRESETS).find((x) => x.to === raiseTo) === pr ? 'preset--on' : ''}`}
+                disabled={!active}
+                onClick={() => setAmount(pr.to)}
+                title={`${pr.hint}: ${fmtChips(pr.to)}`}
+              >
+                {pr.label}
+              </button>
+            ))}
+          </div>
+          <div className="sizer">
+            <button className="sizer__step" disabled={!active} onClick={() => setAmount(raiseTo - p.bigBlind)} aria-label="Decrease by one big blind" title="Down / Left arrow">
+              −
+            </button>
+            <input
+              type="range"
+              className="sizer__slider"
+              min={legal?.minTo ?? 0}
+              max={legal?.maxTo ?? 1}
+              step={1}
+              value={active ? raiseTo : (legal?.minTo ?? 0)}
+              disabled={!active || !legal?.raiseType}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              aria-label="Raise amount"
+              title="Arrow keys: ±1 big blind (Shift: ±5)"
+            />
+            <button className="sizer__step" disabled={!active} onClick={() => setAmount(raiseTo + p.bigBlind)} aria-label="Increase by one big blind" title="Up / Right arrow">
+              +
+            </button>
+            <label className={`sizer__input ${text !== '' && !textValid && active ? 'sizer__input--bad' : ''}`}>
+              <input
+                ref={inputRef}
+                type="number"
+                inputMode="numeric"
+                min={legal?.minTo}
+                max={legal?.maxTo}
+                step={1}
+                value={active ? text : ''}
+                disabled={!active || !legal?.raiseType}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  const v = Number(e.target.value);
+                  if (legal?.raiseType && Number.isInteger(v) && v >= legal.minTo && v <= legal.maxTo) setRaiseTo(v);
+                }}
+                onBlur={() => setAmount(textValid ? parsed : raiseTo)}
+                aria-label="Raise to amount"
+                data-testid="raise-input"
+              />
+              <span className="sizer__bb">{legal?.raiseType ? fmtBB(textValid ? parsed : raiseTo, p.bigBlind) : ''}</span>
+            </label>
+          </div>
+          <div className="sizer__range">
+            {legal?.raiseType && active ? (
+              text !== '' && !textValid ? (
+                <span className="sizer__err">
+                  Enter a whole number from {fmtChips(legal.minTo)} to {fmtChips(legal.maxTo)}
+                </span>
+              ) : (
+                <span>
+                  Min {fmtChips(legal.minTo)} · Max {fmtChips(legal.maxTo)}
+                </span>
+              )
+            ) : (
+              <span>&nbsp;</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

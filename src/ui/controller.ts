@@ -5,9 +5,9 @@
 import { mulberry32, type Rng, cardsToString } from '../engine/cards';
 import { type Action, type HandState, type LegalActions, applyAction, legalActions, validateAction } from '../engine/game';
 import {
-  type MatchState, createMatch, dealNextHand, recordHand, settleBetweenHands, rebuy,
+  type MatchState, createMatch, dealNextHand, recordHand, settleBetweenHands, matchOverReason,
 } from '../engine/match';
-import { viewFor } from '../engine/view';
+import { viewFor, publicHand } from '../engine/view';
 import type { BotDecision, BotProfile } from '../bots/types';
 import { deriveDisplay, describeEvent, type TableDisplay } from './display';
 
@@ -80,6 +80,9 @@ export class TableController {
   private userResolver: ((a: Action) => void) | null = null;
   private nextHandResolver: (() => void) | null = null;
   private shown = 0;
+  /** the real hand state (contains hidden cards; never put in the snapshot) */
+  private full: HandState | null = null;
+  private fullHands: HandState[] = [];
   private setup: MatchSetup | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
 
@@ -129,6 +132,8 @@ export class TableController {
     ];
     const firstButton = Math.floor(this.rng() * players.length);
     const match = createMatch({ smallBlind: 1, bigBlind: bb }, setup.startingBB * bb, players, firstButton);
+    this.fullHands = [];
+    this.full = null;
     this.set({
       phase: 'playing',
       match,
@@ -146,6 +151,7 @@ export class TableController {
 
   stop() {
     this.gen++;
+    this.setPaused(false);
     this.skipResolver?.();
     this.skipResolver = null;
     this.userResolver = null;
@@ -154,15 +160,34 @@ export class TableController {
 
   /** User action. Ignored unless it is the user's turn and the action is legal. */
   act(a: Action): string | null {
-    const h = this.snap.hand;
+    const h = this.full;
     if (!h || !this.userResolver || !this.snap.legal) return 'not your turn';
-    const err = validateAction(h, a);
+    const guarded: Action = { ...a, pi: this.snap.userPi, seq: h.actions.length };
+    const err = validateAction(h, guarded);
     if (err) return err;
     const r = this.userResolver;
     this.userResolver = null;
     this.set({ legal: null });
-    r(a);
+    r(guarded);
     return null;
+  }
+
+  private paused = false;
+  private unpauseResolvers: (() => void)[] = [];
+
+  /** Pause pacing (e.g. while a replay or dialog is open). The current wait finishes first. */
+  setPaused(p: boolean) {
+    this.paused = p;
+    if (!p) {
+      const rs = this.unpauseResolvers;
+      this.unpauseResolvers = [];
+      rs.forEach((r) => r());
+    }
+  }
+
+  private waitUnpaused(): Promise<void> {
+    if (!this.paused) return Promise.resolve();
+    return new Promise((r) => this.unpauseResolvers.push(r));
   }
 
   /** Skip the current wait (bot thinking or animation pause). */
@@ -174,11 +199,9 @@ export class TableController {
     this.nextHandResolver?.();
   }
 
-  rebuyUser() {
-    const m = this.snap.match;
-    if (!m) return;
-    rebuy(m, 0);
-    this.set({ match: { ...m } });
+  /** Full (unsanitized) finished hands, for analysis in the worker. Never rendered. */
+  get fullHistory(): readonly HandState[] {
+    return this.fullHands;
   }
 
   // ------------------------------------------------------------------ loop
@@ -213,6 +236,8 @@ export class TableController {
         return 650 * p;
       case 'muck':
         return 250 * p;
+      case 'reveal':
+        return 500 * p;
       case 'award':
         return 1200 * p;
       case 'end':
@@ -248,33 +273,41 @@ export class TableController {
     return logs.slice(-60);
   }
 
+  private publish(h: HandState, patch: Partial<Snapshot> = {}) {
+    const pub = publicHand(h, this.snap.userPi, this.shown);
+    this.set({ hand: pub, display: deriveDisplay(pub, this.shown, this.snap.userPi), ...patch });
+  }
+
   /** Reveal events one at a time with animation pacing. */
   private async showEvents(h: HandState, gen: number) {
     while (this.shown < h.events.length) {
+      await this.waitUnpaused();
       if (gen !== this.gen) return;
       const i = this.shown++;
-      const logs = this.pushLog(h, i, i + 1);
-      this.set({ hand: h, display: deriveDisplay(h, this.shown, this.snap.userPi), logs });
+      const pub = publicHand(h, this.snap.userPi, this.shown);
+      this.publish(h, { logs: this.pushLog(pub, i, i + 1) });
       await this.sleep(this.eventDelay(h, i), gen);
     }
   }
 
   private async run(gen: number) {
-    const m = this.snap.match!;
+    let m = this.snap.match!;
     const setup = this.setup!;
     try {
       while (gen === this.gen) {
-        settleBetweenHands(m);
-        const user = m.seats[0];
-        const live = m.seats.filter((s) => !s.busted && s.stack > 0);
-        if (m.handsPlayed >= setup.hands || user.busted || live.length < 2) {
-          this.set({ phase: 'matchOver', legal: null, thinkingPi: -1, match: { ...m } });
+        m = settleBetweenHands(m);
+        if (matchOverReason(m, setup.hands, 0)) {
+          this.set({ phase: 'matchOver', legal: null, thinkingPi: -1, match: m });
           return;
         }
-        let h = dealNextHand(m, this.rng);
+        const dealt = dealNextHand(m, this.rng);
+        m = dealt.match;
+        let h = dealt.hand;
+        this.full = h;
         const userPi = h.players.findIndex((p) => p.id === USER_ID);
         this.shown = 0;
-        this.set({ phase: 'playing', hand: h, userPi, handNumber: m.handsPlayed + 1, match: { ...m } });
+        this.set({ phase: 'playing', userPi, handNumber: m.handsPlayed + 1, match: m });
+        this.publish(h);
         while (gen === this.gen) {
           await this.showEvents(h, gen);
           if (gen !== this.gen) return;
@@ -284,14 +317,15 @@ export class TableController {
           if (pi === userPi) {
             action = await new Promise<Action>((resolve) => {
               this.userResolver = resolve;
-              this.set({ legal: legalActions(h), thinkingPi: -1, display: deriveDisplay(h, this.shown, userPi) });
+              this.publish(h, { legal: legalActions(h), thinkingPi: -1 });
             });
           } else {
+            await this.waitUnpaused();
+            if (gen !== this.gen) return;
             const profile = this.snap.bots.find((b) => b.id === h.players[pi].id)!;
             const duration =
               this.settings.thinkMin + this.rng() * Math.max(0, this.settings.thinkMax - this.settings.thinkMin);
-            const t0 = performance.now();
-            this.set({ thinkingPi: pi, thinkStart: t0, thinkDuration: duration, legal: null });
+            this.set({ thinkingPi: pi, thinkStart: performance.now(), thinkDuration: duration, legal: null });
             const seed = Math.floor(this.rng() * 2 ** 31);
             const [decision] = await Promise.all([this.decide(profile, h, pi, seed), this.sleep(duration, gen)]);
             action = decision.action;
@@ -302,14 +336,20 @@ export class TableController {
             }
           }
           if (gen !== this.gen) return;
-          this.set({ thinkingPi: -1 });
           h = applyAction(h, action);
+          this.full = h;
+          this.set({ thinkingPi: -1 });
         }
         if (gen !== this.gen) return;
-        recordHand(m, h);
-        this.set({ history: [...this.snap.history, h].slice(-200), phase: 'handOver', match: { ...m } });
+        m = recordHand(m, h).match;
+        this.fullHands.push(h);
+        this.set({
+          history: [...this.snap.history, publicHand(h, userPi)].slice(-200),
+          phase: 'handOver',
+          match: m,
+        });
         if (this.settings.autoNextHand) {
-          await this.sleep(1600 * this.settings.pace, gen);
+          await this.sleep(1700 * this.settings.pace, gen);
         } else {
           await new Promise<void>((resolve) => {
             this.nextHandResolver = resolve;

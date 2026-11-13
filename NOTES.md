@@ -49,3 +49,23 @@ Design decisions:
 ## Deferred
 - (M1 ui minor) readonly types, per-event seq numbers, collect events, side-pot-first award
   order, best-five in show events — the display layer derives these.
+
+## Milestone 2 — Playable table
+Built:
+- `src/ui/controller.ts` — framework-free match runner: paces engine events for animation,
+  asks the bot worker for decisions (0.6–1.8 s natural delay, Space/click skips, "Fast"
+  mode halves it), waits for user actions (guarded with `pi`/`seq`, no double submit),
+  pauses while dialogs are open. The snapshot only ever holds `publicHand(...)`.
+- `src/ui/display.ts` — derives what the table shows after the first k events (stacks,
+  bets, pot/side pots, labels, revealed cards, awards) + hand-log text.
+- `src/worker/botWorker.ts` + `src/ui/botClient.ts` — bot decisions run in a Web Worker.
+  `src/bots/placeholder.ts` is the temporary bot.
+- Components: `Table` (fixed 1100×640 stage scaled to fit → no layout shift; seats, cards
+  with 3D flips, chips that slide to the pot and to winners, dealer button, timer ring),
+  `ActionBar` (Fold / Check-Call / Bet-Raise, presets, slider, numeric input; illegal
+  amounts disable the raise button; F/C/R/Enter/arrow keys, hints on hover),
+  `HandLog` (collapsible, per-hand, replay links), `ReplayModal` (step/play any finished
+  hand), `SetupScreen`, `Modal` (focus trap, Esc), HUD (style + VPIP/PFR).
+- Four-colour deck; reduced motion via `MotionConfig reducedMotion="user"` + CSS.
+- Playwright smoke test `tests/e2e/smoke.spec.ts` (uses installed Chrome: `npm run e2e`).
+- Dev helpers: `scripts/shoot.mjs`, `scripts/shoot-replay.mjs` (screenshots with Playwright).

@@ -151,7 +151,9 @@ export const Table = memo(function Table(props: TableProps) {
               exit={{ x: POT_PT.x - slot.bet.x, y: POT_PT.y - slot.bet.y, opacity: 0 }}
               transition={{ duration: 0.32, ease: [0.25, 0.8, 0.3, 1] }}
             >
-              <ChipStack amount={s.bet} />
+              <div className="bet__center">
+                <ChipStack amount={s.bet} />
+              </div>
             </motion.div>
           );
         })}
@@ -170,7 +172,9 @@ export const Table = memo(function Table(props: TableProps) {
               animate={{ x: slot.seat.x - POT_PT.x, y: slot.seat.y - POT_PT.y, opacity: [1, 1, 0] }}
               transition={{ duration: 0.75, ease: [0.3, 0.7, 0.3, 1], times: [0, 0.8, 1] }}
             >
-              <ChipStack amount={a.shares[j]} showLabel={false} />
+              <div className="bet__center">
+                <ChipStack amount={a.shares[j]} showLabel={false} />
+              </div>
             </motion.div>
           );
         }),
@@ -300,10 +304,11 @@ const SeatView = memo(function SeatView(p: SeatProps) {
         </div>
       )}
 
+      <div className="seat__label-wrap">
       <AnimatePresence>
         {s.label && (
           <motion.div
-            key={`${p.handId}-${s.label}`}
+            key={`${p.handId}`}
             className={`seat__label seat__label--${s.labelKind}`}
             initial={{ opacity: 0, y: 6, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -314,6 +319,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
       {s.handName && p.showdown && !s.mucked && <div className="seat__handname">{s.handName}</div>}
     </div>
