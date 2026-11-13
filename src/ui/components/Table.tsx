@@ -304,6 +304,7 @@ const SeatView = memo(function SeatView(p: SeatProps) {
           <span className="seat__hud-style">{p.hud.style}</span>
           <span>
             VPIP {p.hud.vpip} · PFR {p.hud.pfr}
+            <span className="seat__hud-n"> ({p.hud.hands})</span>
           </span>
         </div>
       )}
