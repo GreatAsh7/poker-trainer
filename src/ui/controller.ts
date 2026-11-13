@@ -202,6 +202,7 @@ export class TableController {
   /** Skip the current wait (bot thinking or animation pause). */
   skip() {
     this.skipResolver?.();
+    this.nextHandResolver?.();
   }
 
   continueToNextHand() {

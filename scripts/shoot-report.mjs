@@ -9,10 +9,10 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
 });
+await page.addInitScript(() => localStorage.setItem('poker-trainer.prefs.v1', JSON.stringify({ pace: 0.35, thinkMin: 0.2, thinkMax: 0.5 })));
 await page.goto('http://localhost:5199/');
 await page.getByRole('radio', { name: '25 hands' }).click();
 await page.getByTestId('start-match').click();
-await page.getByLabel('Fast').check().catch(() => {});
 const t0 = Date.now();
 let i = 0;
 while (Date.now() - t0 < 600_000) {

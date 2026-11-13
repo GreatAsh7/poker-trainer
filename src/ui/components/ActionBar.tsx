@@ -11,6 +11,8 @@ interface Props {
   bigBlind: number;
   preflopRaises: number;
   limpers: number;
+  /** show the "you need X% equity" helper */
+  showPotOdds?: boolean;
   /** chips each player has committed this hand (for pot odds) */
   totals: readonly number[];
   heroPi: number;
@@ -143,11 +145,15 @@ export function ActionBar(p: Props) {
                   </>
                 )}
               </span>
-              <span className="dot">·</span>
-              <span title="Pot odds: the share of the final pot you pay to call. If your chance of winning is higher than this, calling makes money in the long run.">
-                Pot odds <strong>{((1 - need) / need).toFixed(1)} : 1</strong> — you need{' '}
-                <strong>{(need * 100).toFixed(1)}%</strong> equity to call
-              </span>
+              {p.showPotOdds !== false && (
+                <>
+                  <span className="dot">·</span>
+                  <span title="Pot odds: the share of the final pot you pay to call. If your chance of winning is higher than this, calling makes money in the long run.">
+                    Pot odds <strong>{((1 - need) / need).toFixed(1)} : 1</strong> — you need{' '}
+                    <strong>{(need * 100).toFixed(1)}%</strong> equity to call
+                  </span>
+                </>
+              )}
             </>
           ) : (
             <>

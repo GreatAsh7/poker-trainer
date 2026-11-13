@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, MotionConfig } from 'framer-motion';
 import { TableController, createDecideFn, positionName, type MatchSetup } from './controller';
 import { BotClient } from './botClient';
@@ -14,6 +14,9 @@ import type { Action } from '../engine/game';
 import type { MatchReport } from '../analysis/coach';
 import { ReportScreen } from './components/ReportScreen';
 import { loadReports, saveReport } from './storage';
+import { loadPrefs, savePrefs, type Prefs } from './settings';
+import { SettingsModal } from './components/SettingsModal';
+import { play, setSound } from './sound';
 
 const STYLE_LABELS: Record<string, string> = {
   placeholder: 'Basic',
@@ -40,8 +43,19 @@ export function App() {
   const [building, setBuilding] = useState<'idle' | 'building' | 'error'>('idle');
   const [lastSetup, setLastSetup] = useState<MatchSetup | null>(null);
   const [showLog, setShowLog] = useState(() => window.innerWidth >= 1200);
-  const [showHud, setShowHud] = useState(true);
-  const [fast, setFast] = useState(false);
+  const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs());
+  const setPrefs = (p: Prefs) => {
+    setPrefsState(p);
+    savePrefs(p);
+  };
+  const showHud = prefs.showHud;
+  const setShowHud = (v: boolean | ((x: boolean) => boolean)) =>
+    setPrefsState((p) => {
+      const n = { ...p, showHud: typeof v === 'function' ? v(p.showHud) : v };
+      savePrefs(n);
+      return n;
+    });
+  const [showSettings, setShowSettings] = useState(false);
   const [replayId, setReplayId] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
@@ -49,18 +63,49 @@ export function App() {
     setLastSetup(s);
     setReport(null);
     setBuilding('idle');
-    ctrl.settings.pace = fast ? 0.5 : 1;
     ctrl.startMatch(s);
     setScreen('table');
   };
 
   useEffect(() => {
-    ctrl.settings.pace = fast ? 0.5 : 1;
-    ctrl.settings.thinkMin = fast ? 300 : 600;
-    ctrl.settings.thinkMax = fast ? 800 : 1800;
-  }, [fast, ctrl]);
+    ctrl.settings.pace = prefs.pace;
+    ctrl.settings.thinkMin = prefs.thinkMin * 1000;
+    ctrl.settings.thinkMax = prefs.thinkMax * 1000;
+    ctrl.settings.autoNextHand = !prefs.pauseAfterHand;
+    setSound(prefs.sound, prefs.volume);
+  }, [prefs, ctrl]);
 
-  const modalOpen = replayId !== null || confirmLeave;
+  // sound effects follow what the table shows (muted unless enabled in Settings)
+  const lastSound = useRef('');
+  useEffect(() => {
+    const h = snap.hand;
+    const d = snap.display;
+    if (!h || !d || d.lastEvent < 0) return;
+    const key = `${h.handId}-${d.lastEvent}`;
+    if (lastSound.current === key) return;
+    lastSound.current = key;
+    const e = h.events[d.lastEvent];
+    if (!e) return;
+    if (e.kind === 'deal') play('deal');
+    else if (e.kind === 'street' || e.kind === 'reveal') play('flip');
+    else if (e.kind === 'action') play(e.record.type === 'fold' ? 'fold' : e.record.type === 'check' ? 'check' : 'chip');
+    else if (e.kind === 'award') play(e.award.winners.includes(snap.userPi) ? 'win' : 'chip');
+  }, [snap.display, snap.hand, snap.userPi]);
+  useEffect(() => {
+    if (snap.legal) play('turn');
+  }, [snap.legal]);
+
+  // optional decision timer: check if free, otherwise fold
+  const [timerStart, setTimerStart] = useState(0);
+  useEffect(() => {
+    if (!snap.legal || prefs.turnTimer <= 0 || replayId !== null || confirmLeave || showSettings) return;
+    const legal = snap.legal;
+    setTimerStart(performance.now());
+    const t = setTimeout(() => ctrl.act(legal.canCheck ? { type: 'check' } : { type: 'fold' }), prefs.turnTimer * 1000);
+    return () => clearTimeout(t);
+  }, [snap.legal, prefs.turnTimer, ctrl, replayId, confirmLeave, showSettings]);
+
+  const modalOpen = replayId !== null || confirmLeave || showSettings;
   useEffect(() => {
     ctrl.setPaused(modalOpen);
   }, [modalOpen, ctrl]);
@@ -153,11 +198,15 @@ export function App() {
           onStart={start}
           initial={lastSetup ?? undefined}
           reportsCount={reports.length}
+          onShowSettings={() => setShowSettings(true)}
           onShowReports={() => {
             setReport(reports[reports.length - 1] ?? null);
             setScreen('report');
           }}
         />
+        <AnimatePresence>
+          {showSettings && <SettingsModal key="settings" prefs={prefs} onChange={setPrefs} onClose={() => setShowSettings(false)} />}
+        </AnimatePresence>
       </MotionConfig>
     );
   }
@@ -222,9 +271,9 @@ export function App() {
             <label className="chk" title="Show each bot's style and stats (H)">
               <input type="checkbox" checked={showHud} onChange={(e) => { setShowHud(e.target.checked); e.target.blur(); }} /> HUD
             </label>
-            <label className="chk" title="Faster animations and bot decisions">
-              <input type="checkbox" checked={fast} onChange={(e) => { setFast(e.target.checked); e.target.blur(); }} /> Fast
-            </label>
+            <button className="btn-ghost" onClick={() => setShowSettings(true)} title="Speed, timer, sound and display options" data-testid="open-settings">
+              ⚙ Settings
+            </button>
             <button className="btn-ghost" onClick={() => setShowLog((v) => !v)} title="Show or hide the hand log (L)">
               {showLog ? 'Hide log' : 'Show log'}
             </button>
@@ -243,9 +292,9 @@ export function App() {
                 display={d}
                 heroPi={snap.userPi}
                 tableSize={tableSize}
-                thinkingPi={snap.thinkingPi}
-                thinkStart={snap.thinkStart}
-                thinkDuration={snap.thinkDuration}
+                thinkingPi={snap.legal && prefs.turnTimer > 0 ? snap.userPi : snap.thinkingPi}
+                thinkStart={snap.legal && prefs.turnTimer > 0 ? timerStart : snap.thinkStart}
+                thinkDuration={snap.legal && prefs.turnTimer > 0 ? prefs.turnTimer * 1000 : snap.thinkDuration}
                 hud={hud}
                 bigBlind={bb}
                 center={
@@ -271,6 +320,7 @@ export function App() {
             bigBlind={bb}
             preflopRaises={preflopRaises}
             limpers={limpers}
+            showPotOdds={prefs.showPotOdds}
             totals={totals}
             heroPi={snap.userPi}
             waitingText={waiting}
@@ -319,6 +369,7 @@ export function App() {
             </div>
           </Modal>
         )}
+        {showSettings && <SettingsModal key="settings" prefs={prefs} onChange={setPrefs} onClose={() => setShowSettings(false)} />}
         {confirmLeave && (
           <Modal key="leave" title="Leave this match?" onClose={() => setConfirmLeave(false)}>
             <p>

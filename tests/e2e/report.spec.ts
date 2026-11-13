@@ -7,11 +7,12 @@ test('a full match ends with a coaching report that is saved for next time', asy
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text());
   });
+  // fast pacing via saved preferences
+  await page.addInitScript(() => localStorage.setItem('poker-trainer.prefs.v1', JSON.stringify({ pace: 0.35, thinkMin: 0.2, thinkMax: 0.5 })));
   await page.goto('/');
   await page.getByRole('radio', { name: 'Heads-up' }).click();
   await page.getByRole('radio', { name: '25 hands' }).click();
   await page.getByTestId('start-match').click();
-  await page.getByLabel('Fast').check();
   let i = 0;
   while (!(await page.getByTestId('report').isVisible())) {
     i++;
