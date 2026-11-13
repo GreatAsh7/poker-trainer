@@ -116,18 +116,40 @@ Built (all pure TS in `src/bots/`, run in the Web Worker):
 - App: setup screen "Opponents" (Mixed / Expert table / Softer table); the controller sends
   every bot the public stats of all players so they adapt over the match.
 
-Measured (`npm run sim`, heads-up duplicate, 100 BB, 20,000 hands per matchup):
+Measured with `npm run sim -- --hands 60000` (opponent reads reset every 50 hands, like a
+new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max row;
+0 illegal actions). Expert bb/100 with 95% CI:
 
-| Opponent | Expert bb/100 (95% CI) |
-|---|---|
-| Solid (TAG) | +51.3 ± 9.0 |
-| Aggressive (LAG) | +35.8 ± 13.8 |
-| Tight-passive (nit) | +43.2 ± 6.9 |
-| Calling station | +29.0 ± 8.8 |
-| Random legal | +475.5 ± 40.8 |
-| Always call | +471.0 ± 17.9 |
-| Maniac | +876.8 ± 63.4 |
+| Format | Opponent | 100 BB | 40 BB | 20 BB |
+|---|---|---|---|---|
+| Heads-up | Solid (TAG) | +10.3 ± 6.4 | +14.7 ± 5.4 | +41.0 ± 3.7 |
+| Heads-up | Aggressive (LAG) | +113.5 ± 12.0 | +48.3 ± 7.8 | +42.8 ± 4.8 |
+| Heads-up | Tight-passive (nit) | +7.8 ± 4.9 | +6.1 ± 4.8 | +21.8 ± 3.4 |
+| Heads-up | Calling station | +137.3 ± 7.8 | +114.6 ± 8.1 | +81.0 ± 4.9 |
+| Heads-up | Exploit: 3-bets every open | +82.0 ± 9.9 | — | +202.5 ± 5.3 |
+| Heads-up | Exploit: shoves every hand | +635.2 ± 39.0 | +216.9 ± 15.7 | +71.4 ± 7.5 |
+| Heads-up | Random legal / always call / maniac | +420.9 / +454.6 / +750.7 | — | — |
+| 6-max, Expert vs 5 copies | TAG / LAG / nit / station | +6.4 ± 3.4 / +25.5 ± 5.2 / +4.4 ± 3.2 / +153.2 ± 9.3 | — | — |
 
 6-max ring (`npm run sim:ring -- 16000`): personalities clearly distinct (e.g. VPIP/PFR
 TAG 21/16, LAG 33/27, nit 13/8, station 34/6, Expert 27/21; open % UTG→BTN for TAG
 17/23/32/43). Decision time p99 ≈ 2 ms, max ≈ 10 ms.
+
+### Critic round (Milestone 3)
+- strategy-critic round 1: **Not ready (3 blockers, 3 majors)**.
+  - Blocker: the Expert's edge came from 10k-hand reads; at app match lengths it did not beat
+    TAG/LAG → the sim now resets reads every 50 hands, tests 100/40/20 BB and 6-max (Expert vs
+    five copies of each bot), and fails on any illegal action. Strategy fixes: heavier
+    shrinkage on reads (no exploiting noise), exploits gated on ≥ 20 hands, range-proportional
+    3-bet defence, fold-equity re-shoves at ≤ 40 BB, aggression-aware range likelihoods (medium
+    hands bet more by aggressive players; passive players check/call monsters), fold-to-bet
+    stat for bluff frequency. Simpler personalities now read hands less precisely
+    (`rangeReading`), TAG folds a bit too easily as its description says.
+  - Blocker: "3-bet every open" beat the Expert → defends the top ~58% (HU) / 46% (IP) / 38%
+    (OOP) of its own opening range; now +82 / +203 bb/100 against that exploit.
+  - Blocker: "jam any two" ~broke even → range model represents very loose players (floors scale
+    with VPIP/PFR/3-bet, caps raised), shoves use position/depth push ranges; now +635 / +217 / +71.
+  - Majors fixed: Expert mixes river sizes independently of strength; as the caller it checks to
+    the preflop raiser with most of its range; sim measures app conditions.
+  - Minors fixed: board-only straight draws no longer count, BB check narrows the range, fold
+    reasons show realised equity, dead code removed, Expert bluffs the river more.

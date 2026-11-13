@@ -26,6 +26,8 @@ export interface PlayerStats {
   postBets: number;
   postCalls: number;
   postFolds: number;
+  /** postflop raises made when facing a bet */
+  postRaisesFacing: number;
   /** saw the flop → went to showdown */
   wtsd: Counter;
   /** won at showdown when there */
@@ -40,7 +42,7 @@ const c = (): Counter => ({ n: 0, opp: 0 });
 export function emptyStats(): PlayerStats {
   return {
     hands: 0, vpip: c(), pfr: c(), threeBet: c(), foldTo3Bet: c(), limp: c(), cbet: c(), foldToCbet: c(),
-    postBets: 0, postCalls: 0, postFolds: 0, wtsd: c(), wsd: c(), riverBluff: c(), byPosition: {},
+    postBets: 0, postCalls: 0, postFolds: 0, postRaisesFacing: 0, wtsd: c(), wsd: c(), riverBluff: c(), byPosition: {},
   };
 }
 
@@ -132,6 +134,7 @@ export function addHand(all: Record<string, PlayerStats>, h: HandState): void {
       if (a.type === 'bet' || a.type === 'raise') st.postBets++;
       else if (a.type === 'call') st.postCalls++;
       else if (a.type === 'fold') st.postFolds++;
+      if (a.type === 'raise') st.postRaisesFacing++;
     }
     // river aggression that reached showdown with cards shown: was it a bluff?
     if (h.showdown && h.board.length === 5 && p.hole.length === 2 && h.shown.includes(pi)) {
@@ -178,13 +181,15 @@ export interface OpponentModel {
   foldToCbet: number;
   /** postflop aggression frequency: (bets+raises) / (bets+raises+calls+folds) */
   aggFreq: number;
+  /** postflop: share of the time they fold when facing a bet or raise */
+  foldToBet: number;
   wtsd: number;
   /** share of river bets shown down that were bluffs (weak hands) */
   bluffRate: number;
 }
 
 export const POPULATION: OpponentModel = {
-  hands: 0, vpip: 0.25, pfr: 0.19, threeBet: 0.07, foldTo3Bet: 0.55, foldToCbet: 0.45, aggFreq: 0.5, wtsd: 0.3, bluffRate: 0.25,
+  hands: 0, vpip: 0.25, pfr: 0.19, threeBet: 0.07, foldTo3Bet: 0.55, foldToCbet: 0.45, aggFreq: 0.5, wtsd: 0.3, bluffRate: 0.25, foldToBet: 0.4,
 };
 
 export function toModel(s: PlayerStats | undefined): OpponentModel {
@@ -193,13 +198,14 @@ export function toModel(s: PlayerStats | undefined): OpponentModel {
   const postTotal = s.postBets + s.postCalls + s.postFolds;
   return {
     hands: s.hands,
-    vpip: shrunk(s.vpip, P.vpip, 15),
-    pfr: shrunk(s.pfr, P.pfr, 15),
-    threeBet: shrunk(s.threeBet, P.threeBet, 15),
-    foldTo3Bet: shrunk(s.foldTo3Bet, P.foldTo3Bet, 10),
-    foldToCbet: shrunk(s.foldToCbet, P.foldToCbet, 8),
-    aggFreq: (s.postBets + P.aggFreq * 15) / (postTotal + 15),
-    wtsd: shrunk(s.wtsd, P.wtsd, 10),
-    bluffRate: shrunk(s.riverBluff, P.bluffRate, 6),
+    vpip: shrunk(s.vpip, P.vpip, 25),
+    pfr: shrunk(s.pfr, P.pfr, 25),
+    threeBet: shrunk(s.threeBet, P.threeBet, 25),
+    foldTo3Bet: shrunk(s.foldTo3Bet, P.foldTo3Bet, 20),
+    foldToCbet: shrunk(s.foldToCbet, P.foldToCbet, 15),
+    aggFreq: (s.postBets + P.aggFreq * 30) / (postTotal + 30),
+    wtsd: shrunk(s.wtsd, P.wtsd, 20),
+    bluffRate: shrunk(s.riverBluff, P.bluffRate, 12),
+    foldToBet: (s.postFolds + P.foldToBet * 20) / (s.postFolds + s.postCalls + s.postRaisesFacing + 20),
   };
 }

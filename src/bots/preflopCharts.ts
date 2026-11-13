@@ -134,3 +134,12 @@ export function chart(spec: string): Range {
   }
   return r;
 }
+
+/**
+ * Share of hands to open-shove (and, by symmetry, the range to assume for an opponent's
+ * open-shove) by position and effective stack in big blinds. Roughly Nash push ranges.
+ */
+export function pushPct(pos: Pos, depthBB: number, headsUp: boolean): number {
+  const base: Record<Pos, number> = { UTG: 0.13, HJ: 0.17, CO: 0.24, BTN: 0.38, SB: headsUp ? 0.62 : 0.5, BB: 0.5 };
+  return Math.max(0.05, Math.min(0.95, base[pos] * Math.pow(10 / Math.max(depthBB, 2), 0.75)));
+}

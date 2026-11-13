@@ -24,7 +24,11 @@ const stats: Record<string, PlayerStats> = {};
 const results: Record<string, number[]> = {};
 const opens: Record<string, Record<string, [number, number]>> = {};
 const times: number[] = [];
+const RESET = Number(process.argv[3] ?? 50);
+const roleNet: Record<string, Record<string, number>> = {};
+let statsLive: Record<string, PlayerStats> = {};
 for (let hnd = 0; hnd < N; hnd++) {
+  if (RESET && hnd % RESET === 0) statsLive = {};
   // rotate seating so everyone plays every position against everyone
   const order = lineup.map((_, i) => lineup[(i + hnd) % 6]);
   let h = startHand({
@@ -37,7 +41,7 @@ for (let hnd = 0; hnd < N; hnd++) {
     const pi = h.toAct;
     const v = viewFor(h, pi);
     const models: Record<string, ReturnType<typeof toModel>> = {};
-    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(stats[p.id]);
+    for (const p of v.players) if (p.pi !== pi) models[p.id] = toModel(statsLive[p.id]);
     const t0 = performance.now();
     const d = decide({ view: v, persona: PERSONALITIES[order[pi].style], models, rng });
     times.push(performance.now() - t0);
@@ -58,6 +62,18 @@ for (let hnd = 0; hnd < N; hnd++) {
     h = applyAction(h, a);
   }
   addHand(stats, publicHand(h, -1));
+  addHand(statsLive, publicHand(h, -1));
+  h.players.forEach((p, pi) => {
+    const pre = h.actions.filter((a) => a.street === 'preflop');
+    const raisesBefore = (k: number) => pre.slice(0, k).filter((a) => a.type === 'raise').length;
+    let role = 'folded/walk';
+    pre.forEach((a, k) => { if (a.pi === pi && a.type !== 'fold' && a.type !== 'check') role = (a.type === 'raise' ? ['open', '3bet', '4bet+', '4bet+'][Math.min(3, raisesBefore(k))] : ['limp', 'call open', 'call 3bet', 'call 4bet+'][Math.min(3, raisesBefore(k))]); });
+    const pos = positionOf(6, h.buttonPi, pi);
+    const key = `${role}`;
+    const r = (roleNet[p.id] ??= {});
+    r[key] = (r[key] ?? 0) + (p.stack - 200) / 2;
+    r['pos ' + pos] = (r['pos ' + pos] ?? 0) + (p.stack - 200) / 2;
+  });
   h.players.forEach((p) => (results[p.id] ??= []).push((p.stack - 200) / 2));
 }
 const pc = (x: number) => (isNaN(x) ? '  —' : `${(x * 100).toFixed(0)}%`.padStart(4));
@@ -79,3 +95,5 @@ for (const { id } of lineup) {
 }
 times.sort((a, b) => a - b);
 console.log(`\nDecision time: median ${times[times.length >> 1].toFixed(1)} ms, p99 ${times[Math.floor(times.length * 0.99)].toFixed(1)} ms, max ${times[times.length - 1].toFixed(1)} ms over ${times.length.toLocaleString()} decisions`);
+
+for (const id of ['Expert-1', 'TAG', 'Nit']) console.log(id, Object.entries(roleNet[id]).map(([k, v]) => `${k}: ${(v / N * 100).toFixed(1)}`).join(' | '));

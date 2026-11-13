@@ -38,11 +38,15 @@ export function drawScore(hole: readonly Card[], board: readonly Card[]): number
   for (const c of cards) mask |= 1 << rankOf(c);
   let holeMask = 0;
   for (const c of hole) holeMask |= 1 << rankOf(c);
+  let boardMask = 0;
+  for (const c of board) boardMask |= 1 << rankOf(c);
+  const holeOnly = holeMask & ~boardMask;
   let outsRanks = 0;
   for (let r = 0; r < 13; r++) {
     if (mask & (1 << r)) continue;
     const m = mask | (1 << r);
-    if (makesStraightUsing(m, holeMask | (1 << r))) outsRanks++;
+    // a hole card must supply a rank the board lacks (board-only straights are not draws)
+    if (makesStraightUsing(m, holeOnly)) outsRanks++;
   }
   const sd = outsRanks >= 2 ? 1 : outsRanks === 1 ? 0.5 : 0;
   if (fd && sd > 0) return 1.5;

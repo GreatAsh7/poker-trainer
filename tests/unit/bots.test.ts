@@ -45,6 +45,9 @@ describe('ranges and equity', () => {
     expect(drawScore(parseCards('8c7d'), parseCards('6h 5s Kd'))).toBe(1); // open-ended
     expect(drawScore(parseCards('8h7h'), parseCards('6h 5s Kh'))).toBe(1.5); // combo draw
     expect(drawScore(parseCards('Ac2d'), parseCards('Kh 9s 7d'))).toBe(0);
+    // board-only straight draws are not the hand's draw
+    expect(drawScore(parseCards('2c2d'), parseCards('5h 6s 7d 8c'))).toBe(0);
+    expect(drawScore(parseCards('3c2d'), parseCards('9h Ts Jd Qc'))).toBe(0);
   });
   it('full range equity of AA vs random is about 85%', () => {
     const eq = equityVsRanges(parseCards('AsAh'), [], [fullRange()], 20000, mulberry32(5)).equity;
@@ -131,5 +134,37 @@ describe('every decision is legal and ignores hidden cards', () => {
     const a = base('AsAc');
     const b = base('5d6d');
     for (const st of STYLES) for (let seed = 1; seed < 5; seed++) expect(run(a, st, seed)).toEqual(run(b, st, seed));
+  });
+});
+
+describe('balance', () => {
+  it('Expert river bet sizes do not reveal hand strength', () => {
+    const sizes = (holes: [string, string]) => {
+      const out = new Set<number>();
+      for (let seed = 1; seed <= 60; seed++) {
+        let h = makeHand({ stacks: [400, 400], holes, board: 'Kh 9c 4d 2s 7h', buttonPi: 0 });
+        h = act(h, 'r5', 'c', 'x', 'x', 'x', 'x', 'x');
+        const d = run(h, 'expert', seed);
+        if (d.action.type === 'bet') out.add(Math.round((d.action.amount! / 10) * 4) / 4);
+      }
+      return out;
+    };
+    // the button (p0) acts last on the river after checks: a set of nines vs pure air
+    const strong = sizes(['9h9s', '2c3d']);
+    const air = sizes(['6s5s', '2c3d']);
+    expect(air.size).toBeGreaterThan(0);
+    expect(strong.size).toBeGreaterThan(1);
+    for (const s of air) expect(strong.has(s)).toBe(true);
+  });
+
+  it('as the caller, the Expert usually checks to the preflop raiser on the flop', () => {
+    let checks = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      // HU: p0 button raises, p1 (BB) calls; BB first to act on the flop with top pair
+      let h = makeHand({ stacks: [200, 200], holes: ['2c3d', 'KsQd'], board: 'Kh 7c 2s 9d 4h', buttonPi: 0 });
+      h = act(h, 'r5', 'c');
+      if (run(h, 'expert', seed).action.type === 'check') checks++;
+    }
+    expect(checks).toBeGreaterThanOrEqual(22);
   });
 });

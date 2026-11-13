@@ -17,7 +17,7 @@ import {
   RFI, THREE_BET, CALL_IP, CALL_BB, CALL_SB, VS_3BET, VS_4BET, VS_5BET, ISO, chart, scaleRange, CLASS_PERCENTILE,
   type Pos,
 } from './preflopCharts';
-import { CLASS_INDEX } from './combos';
+import { CLASS_INDEX, COMBO_CLASS } from './combos';
 import { estimateRange, openerGroup } from './rangeModel';
 import { equityVsRanges } from './equity';
 import { boardTable, texture } from './strength';
@@ -181,6 +181,12 @@ function preflop(c: Ctx): BotDecision {
     return { action: fold(c), reason: 'fold to limps' };
   }
 
+  // ---------- short stacks: re-shove over a raise when the fold equity makes it profitable
+  if (p.balanced && effBB <= 40 && raises >= 1 && raises <= 2 && c.live.length === 1 && c.la.raiseType && lastRaiser >= 0) {
+    const d = resteal(c, lastRaiser);
+    if (d) return d;
+  }
+
   // ---------- facing exactly one raise
   if (raises === 1 && !iRaised) {
     const openerPos = positionOf(np, v.buttonPi, openerPi) as Pos;
@@ -193,7 +199,7 @@ function preflop(c: Ctx): BotDecision {
     const threeBet = scaleRange(chart(THREE_BET[g]), p.threeBetMult * steal * squeeze);
     // exploit players who fold too often to 3-bets: re-raise light (adaptive bots, heads-up pots)
     let exploit3 = 0;
-    if (p.adapts && callersAfterRaise === 0 && c.live.length === 1) {
+    if (p.adapts && callersAfterRaise === 0 && c.live.length === 1 && oppModel.hands >= 20) {
       const f = oppModel.foldTo3Bet;
       const to3 = lastRaiseTo * (ip ? 3 : 3.8);
       const risk = to3 - v.players[c.me].streetBet;
@@ -230,6 +236,18 @@ function preflop(c: Ctx): BotDecision {
       return { action: raiseTo(c, to > c.myStack * 0.4 + c.v.players[c.me].streetBet ? c.la.maxTo : to), reason: '4-bet' };
     }
     if (c.toCall > c.myStack * 0.35) return equityDecision(c, 'facing a big 3-bet', true);
+    if (p.defend3Bet > 0) {
+      // Continue with the top part of the range we actually opened, so 3-bet bluffs are not
+      // automatically profitable. Bigger 3-bets are defended a little less.
+      const openR = scaleRange(chart(RFI[chartPos(pos)]), p.rfiMult * (hu ? 1.7 : np <= 3 && pos !== 'SB' ? 1.25 : 1));
+      const rank = rankInRange(c, openR);
+      const sizeX = lastRaiseTo / Math.max(1, v.players[c.me].streetBet);
+      let cont = (hu ? 0.58 : ip ? 0.46 : 0.38) * p.defend3Bet * (sizeX > 4 ? 0.8 : 1);
+      if (p.adapts) cont *= foldTo3BetAdjust(c, lastRaiser);
+      if (rank <= cont * 0.3)
+        return { action: raiseTo(c, lastRaiseTo * 2.3 > c.myStack * 0.4 ? c.la.maxTo : lastRaiseTo * 2.3), reason: `4-bet: top ${(rank * 100).toFixed(0)}% of my opening range` };
+      if (rank <= cont) return { action: { type: 'call' }, reason: `call 3-bet: hand is in the top ${(rank * 100).toFixed(0)}% of my opening range (defend ${(cont * 100).toFixed(0)}%)` };
+    }
     const callR = scaleRange(chart(ip ? VS_3BET.callIP : VS_3BET.callOOP), p.callMult * (p.adapts ? foldTo3BetAdjust(c, lastRaiser) : 1));
     if (inRange(c, callR)) return { action: { type: 'call' }, reason: 'call 3-bet' };
     if (p.adapts) {
@@ -269,6 +287,71 @@ function preflopDefend(c: Ctx, realize: number, why: string): BotDecision | null
   return null;
 }
 
+/**
+ * Expected value of moving all-in now versus the raiser, assuming they call with the
+ * top ~third of their (estimated) range and fold the rest. Returns a shove when it beats
+ * both folding (0) and calling (equity × realisation).
+ */
+function resteal(c: Ctx, villain: number): BotDecision | null {
+  const v = c.v;
+  const r = estimateRange(v, villain, model(c, villain));
+  // villain's calling range: the best part of their range
+  const pre = new Float64Array(r.length);
+  const order: number[] = [];
+  let total = 0;
+  for (let i = 0; i < r.length; i++) if (r[i] > 0) {
+    order.push(i);
+    total += r[i];
+  }
+  order.sort((a, b) => CLASS_PERCENTILE[COMBO_CLASS[a]] - CLASS_PERCENTILE[COMBO_CLASS[b]]);
+  const me = v.players[c.me];
+  const vp = v.players[villain];
+  const myTotal = me.stack + me.streetBet;
+  const villainTotal = vp.stack + vp.streetBet;
+  const risk = Math.min(myTotal, villainTotal);
+  // the more of their stack they must risk, the tighter they call
+  let callShare = clamp(0.55 - 0.6 * ((risk - vp.streetBet) / Math.max(1, villainTotal)), 0.15, 0.6);
+  // with a read, players who rarely fold to re-raises (stations) call much wider
+  const vm = model(c, villain);
+  if (vm.hands >= 15) callShare = Math.max(callShare, (1 - vm.foldTo3Bet) * 0.9);
+  // loose-passive players (many calls, few raises) call shoves wide even before a 3-bet read
+  if (vm.hands >= 6 && vm.vpip - vm.pfr > 0.15) callShare = Math.max(callShare, 0.75);
+  let acc = 0;
+  for (const i of order) {
+    if (acc >= callShare * total) break;
+    pre[i] = r[i];
+    acc += r[i];
+  }
+  const f = 1 - acc / Math.max(1e-9, total);
+  const eqCalled = equityVsRanges(v.hole, v.board, [pre], 500, c.rng).equity;
+  const dead = c.pot - me.streetBet - vp.streetBet; // blinds and other chips already in
+  const potIfCalled = dead + 2 * risk;
+  const evShove = f * c.pot + (1 - f) * (eqCalled * potIfCalled - (risk - me.streetBet)) - 0;
+  // compare with calling (rough: equity vs their whole range, realised out of position)
+  const eqAll = equityVsRanges(v.hole, v.board, [r], 400, c.rng).equity;
+  const evCall = c.la.canCall ? eqAll * 0.8 * (c.pot + c.toCall) - c.toCall : 0;
+  if (evShove > Math.max(0, evCall) + 0.2 * c.bb)
+    return {
+      action: raiseTo(c, c.la.maxTo),
+      reason: `re-shove: they fold about ${Math.round(f * 100)}%, ${Math.round(eqCalled * 100)}% equity when called → EV ${(evShove / c.bb).toFixed(1)} BB`,
+    };
+  return null;
+}
+
+/** Share of a range (by weight) made of hands ranked better than ours preflop (0 = best). */
+function rankInRange(c: Ctx, r: Range): number {
+  const mine = CLASS_PERCENTILE[CLASS_INDEX.get(className(c.v.hole[0], c.v.hole[1]))!];
+  let better = 0;
+  let total = 0;
+  for (let i = 0; i < r.length; i++) {
+    const w = r[i];
+    if (w <= 0) continue;
+    total += w;
+    if (CLASS_PERCENTILE[COMBO_CLASS[i]] < mine) better += w;
+  }
+  return total > 0 ? better / total : 1;
+}
+
 function adaptLimpers(c: Ctx): boolean {
   if (!c.p.adapts) return false;
   return c.v.actions.some((a) => a.street === 'preflop' && a.type === 'call' && model(c, a.pi).vpip - model(c, a.pi).pfr > 0.2);
@@ -284,7 +367,7 @@ function foldTo3BetAdjust(c: Ctx, pi: number): number {
 // equity helpers
 
 function oppRanges(c: Ctx): Range[] {
-  return c.live.map((pi) => estimateRange(c.v, pi, c.p.adapts ? model(c, pi) : POPULATION));
+  return c.live.map((pi) => estimateRange(c.v, pi, c.p.adapts ? model(c, pi) : POPULATION, c.p.rangeReading));
 }
 
 /** Call or fold (or jam) purely on equity vs the estimated ranges and the price. */
@@ -323,7 +406,8 @@ function postflop(c: Ctx): BotDecision {
   const villain = v.lastAggressor >= 0 && v.lastAggressor !== c.me ? v.lastAggressor : c.live[0];
   const vm = model(c, villain);
   const fair = 1 / (nOpp + 1);
-  const scaleThr = (hu: number) => fair * 2 * hu + (hu - 0.5) * 0.3 * (nOpp - 1) * 0; // = hu when heads-up
+  // thresholds below are for heads-up pots; with more opponents the fair share shrinks
+  const scaleThr = (hu: number) => fair * 2 * hu;
   const info = `${street}: equity ${(eq * 100).toFixed(0)}% vs ${nOpp === 1 ? 'range' : nOpp + ' ranges'}`;
 
   // ------------------------------------------------------------ no bet to us
@@ -333,6 +417,18 @@ function postflop(c: Ctx): BotDecision {
     if (p.adapts && nOpp === 1) valueThr -= clamp((vm.wtsd - POPULATION.wtsd) * 0.5, -0.04, 0.08);
     valueThr /= Math.sqrt(p.aggression);
     const sizeFrac = betSize(c, street, tex.wetness, spr, eq);
+    // Balanced: as the caller, check to the player with the initiative with most of our
+    // range (including strong hands, which check-raise or check-call), instead of leading.
+    const initiative = lastAggressorBefore(v);
+    if (
+      p.balanced &&
+      initiative >= 0 &&
+      initiative !== c.me &&
+      !v.players[initiative].folded &&
+      !v.actions.some((a) => a.street === street && a.pi === initiative) &&
+      c.rng() < (eq >= valueThr ? (street === 'flop' ? 0.7 : street === 'turn' ? 0.45 : 0.25) : myDraw >= 1 ? 0.8 : 0.9)
+    )
+      return { action: { type: 'check' }, reason: `${info} → check to the preflop raiser` };
     if (eq >= valueThr) {
       // occasionally slow-play the nuts on dry boards (keeps checking ranges strong)
       if (myStrength > 0.97 && tex.wetness < 0.3 && street !== 'river' && c.rng() < 0.2 && p.sizingVariety)
@@ -349,12 +445,20 @@ function postflop(c: Ctx): BotDecision {
     if (wasAggressor) {
       if (street === 'flop') bluffP = clamp(0.72 - 0.45 * tex.wetness - 0.2 * (nOpp - 1), 0.1, 0.85) * p.cbet;
       else if (street === 'turn') bluffP = (eq < 0.35 ? 0.33 : 0.15) * p.bluff;
-      else bluffP = (eq < 0.2 ? 0.3 : 0.05) * p.bluff;
+      else bluffP = (eq < 0.2 ? (p.balanced ? 0.42 : 0.3) : 0.05) * p.bluff;
     } else if (ipAll && nOpp === 1) {
       // stab when checked to in position
       bluffP = (street === 'river' ? 0.18 : 0.3) * p.bluff;
     }
-    if (p.adapts && nOpp === 1) bluffP *= clamp(Math.pow(vm.foldToCbet / POPULATION.foldToCbet, 1.2) * (POPULATION.wtsd / vm.wtsd), 0.25, 1.8);
+    if (p.adapts && nOpp === 1) {
+      // bluff more against players who fold too much, less against players who call everything
+      const folds = street === 'flop' ? vm.foldToCbet / POPULATION.foldToCbet : vm.foldToBet / POPULATION.foldToBet;
+      bluffP *= clamp(Math.pow(folds, 1.5) * Math.sqrt(POPULATION.wtsd / vm.wtsd), 0.2, 2.2);
+    }
+    if (p.adapts && nOpp > 1) {
+      const minFold = Math.min(...c.live.map((pi) => model(c, pi).foldToBet));
+      bluffP *= clamp(Math.pow(minFold / POPULATION.foldToBet, 1.5), 0.2, 1.6);
+    }
     if (nOpp > 2) bluffP *= 0.4;
     // medium hands with showdown value check more on the river instead of turning into bluffs
     if (street === 'river' && eq > 0.35) bluffP *= 0.2;
@@ -390,12 +494,15 @@ function postflop(c: Ctx): BotDecision {
   if (street !== 'river' && !callIsAllIn) {
     realize = ipAll ? 0.92 : 0.8;
     if (myDraw >= 1) realize = Math.min(1, realize + 0.1);
-    else if (myStrength < 0.5) realize -= ipAll ? 0.06 : 0.15;
+    else if (myStrength < 0.5) realize -= ipAll ? 0.06 : p.balanced ? 0.25 : 0.15;
   }
   const effEq = eq * realize + implied;
   if (effEq >= potOdds + margin || myStrength >= 0.995)
     return { action: { type: 'call' }, reason: `${info}${realize < 1 ? ` (×${realize.toFixed(2)} realised)` : ''}${implied ? ` (+${(implied * 100).toFixed(0)}% implied)` : ''} ≥ ${(potOdds * 100).toFixed(0)}% needed → call` };
-  return { action: fold(c), reason: `${info} < ${(potOdds * 100).toFixed(0)}% needed → fold` };
+  return {
+    action: fold(c),
+    reason: `${info}${realize < 1 ? ` (×${realize.toFixed(2)} realised = ${(effEq * 100).toFixed(0)}%)` : ''} < ${((potOdds + margin) * 100).toFixed(0)}% needed → fold`,
+  };
 }
 
 /** Who made the last bet/raise on the previous street (the "aggressor" coming into this street). */
@@ -415,7 +522,11 @@ function betSize(c: Ctx, street: string, wet: number, spr: number, eq: number): 
   let f: number;
   if (street === 'flop') f = wet < 0.3 ? 0.33 : wet < 0.6 ? 0.5 : 0.7;
   else if (street === 'turn') f = wet < 0.4 ? 0.6 : 0.75;
-  else f = eq > 0.85 ? 0.85 : 0.66; // river: polar sizing; thinner value uses the same size as bluffs
+  else if (c.p.balanced) {
+    // the same size mix for value and bluffs, so the size gives nothing away
+    const x = c.rng();
+    f = x < 0.3 ? 0.5 : x < 0.7 ? 0.75 : x < 0.92 ? 1 : 1.3;
+  } else f = eq > 0.85 ? 0.85 : 0.66;
   if (spr < 1.5) f = Math.max(f, 1); // shallow: get it in
   return f;
 }
