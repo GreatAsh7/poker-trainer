@@ -184,8 +184,6 @@ function preflop(c: Ctx): BotDecision {
     if (pos === 'BB') return { action: { type: 'check' }, reason: 'walk' };
     const base = chart(RFI[chartPos(pos)]);
     let mult = p.rfiMult * (hu ? 1.7 : np <= 3 && pos !== 'SB' ? 1.25 : 1);
-    // short stacks: open wider (less to lose post-flop, more fold equity on re-shoves)
-    if (p.balanced && effBB <= 30) mult *= 1.2;
     if (p.adapts && (pos === 'CO' || pos === 'BTN' || pos === 'SB') && c.behind.length) {
       // steal more from tight players still to act, less from loose ones
       const avgVpip = c.behind.reduce((s, pi) => s + model(c, pi).vpip, 0) / c.behind.length;
@@ -215,7 +213,7 @@ function preflop(c: Ctx): BotDecision {
   }
 
   // ---------- short stacks: re-shove over a raise when the fold equity makes it profitable
-  if (p.balanced && effBB <= 40 && raises >= 1 && raises <= 2 && callersAfterRaise === 0 && limpers === 0 && c.voluntary.length === 1 && c.la.raiseType && lastRaiser >= 0) {
+  if (p.balanced && effBB <= 30 && raises >= 1 && raises <= 2 && callersAfterRaise === 0 && limpers === 0 && c.voluntary.length === 1 && c.la.raiseType && lastRaiser >= 0) {
     const d = resteal(c, lastRaiser);
     if (d) return d;
   }
@@ -344,6 +342,9 @@ function resteal(c: Ctx, villain: number): BotDecision | null {
   const effBB = c.effStack / c.bb;
   // how wide our re-shoves are (roughly): what the raiser calls against
   const shoveShare = clamp(0.18 * Math.pow(20 / Math.max(effBB, 4), 0.9) * (np === 2 ? 1.6 : 1), 0.08, 0.6);
+  // only hands inside that range are candidates, so the fold equity we assume stays honest
+  const myPct = CLASS_PERCENTILE[CLASS_INDEX.get(className(v.hole[0], v.hole[1]))!];
+  if (myPct > shoveShare * 1.15) return null;
   const r = estimateRange(v, villain, model(c, villain));
   const theirNeed = (risk - vp.streetBet) / Math.max(1, c.pot - me.streetBet - vp.streetBet + 2 * risk);
   const vm = model(c, villain);

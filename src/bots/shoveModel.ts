@@ -20,7 +20,7 @@ export function classEquityVsTop(share: number): Float64Array {
   const rng = mulberry32(1000 + bucket);
   for (let ci = 0; ci < CLASS_NAMES.length; ci++) {
     const [a, b] = COMBO_CARDS[CLASS_COMBOS[ci][0]];
-    t[ci] = equityVsRanges([a, b], [], [villain], 300, rng).equity;
+    t[ci] = equityVsRanges([a, b], [], [villain], 700, rng).equity;
   }
   cache.set(bucket, t);
   return t;
