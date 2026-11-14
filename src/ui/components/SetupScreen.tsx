@@ -19,6 +19,12 @@ export const DIFFICULTY_INFO: Record<Difficulty, { label: string; blurb: string 
   easy: { label: 'Softer table', blurb: 'Mostly loose-passive and tight-passive players: practise value betting.' },
 };
 
+const STYLE_WORD: Record<string, string> = { tag: 'solid', lag: 'aggressive', expert: 'expert', nit: 'tight-passive', station: 'calling station' };
+function mixedBlurb(n: number): string {
+  const w = LINEUPS.mixed.slice(0, n).map((s) => STYLE_WORD[s]);
+  return n === 1 ? `One ${w[0]} opponent.` : `A mix of styles: ${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}.`;
+}
+
 export function rosterFor(d: Difficulty): BotProfile[] {
   return LINEUPS[d].map((style, i) => ({ id: `bot-${NAMES[i].toLowerCase()}`, name: NAMES[i], style }));
 }
@@ -92,7 +98,7 @@ export function SetupScreen({ onStart, initial, reportsCount = 0, onShowReports,
         <Segmented label="Starting stack" value={startingBB} options={[20, 50, 100, 150, 200]} onChange={setStartingBB} format={(v) => `${v} BB`} />
         <Segmented label="Match length" value={hands} options={[25, 50, 100]} onChange={setHands} format={(v) => `${v} hands`} />
         <Segmented label="Opponents" value={difficulty} options={['mixed', 'expert', 'easy'] as Difficulty[]} onChange={setDifficulty} format={(v) => DIFFICULTY_INFO[v].label} />
-        <p className="setup__hint">{DIFFICULTY_INFO[difficulty].blurb}</p>
+        <p className="setup__hint">{difficulty === 'mixed' && numBots < 5 ? mixedBlurb(numBots) : DIFFICULTY_INFO[difficulty].blurb}</p>
         <div className="field">
           <span className="field__label">Rebuy</span>
           <label className="toggle">

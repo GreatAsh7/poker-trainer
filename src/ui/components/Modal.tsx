@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useIsPresent } from 'framer-motion';
 
 interface Props {
   title: string;
@@ -10,6 +10,8 @@ interface Props {
 
 /** Accessible modal: focus moves in, Escape closes, focus returns on close. */
 export function Modal({ title, onClose, children, wide }: Props) {
+  // while the closing animation plays the dialog no longer owns the keyboard
+  const present = useIsPresent();
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -45,7 +47,7 @@ export function Modal({ title, onClose, children, wide }: Props) {
   return (
     <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
       <motion.div
-        className={`modal ${wide ? 'modal--wide' : ''}`}
+        className={`modal ${wide ? 'modal--wide' : ''} ${present ? '' : 'modal--closing'}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

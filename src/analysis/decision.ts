@@ -34,6 +34,8 @@ export interface OptionEV {
   eqWhenCalled?: number;
   /** bets bigger than the pot: shown, but not used to judge other sizes (the model can't price them reliably) */
   overbet?: boolean;
+  /** preflop 4-bets (and above) with hands outside the value range */
+  light?: boolean;
 }
 
 export interface RangeMix {
@@ -85,6 +87,19 @@ export interface DecisionAnalysis {
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 
+/** On a board with two pairs, does this hand make a better two pair of its own? */
+function ownTwoPair(a: Card, b: Card, board: Card[]): boolean {
+  const cnt = new Map<number, number>();
+  for (const c of board) cnt.set(c >> 2, (cnt.get(c >> 2) ?? 0) + 1);
+  const pairs = [...cnt.entries()].filter(([, n]) => n === 2).map(([r]) => r);
+  if (pairs.length < 2) return false;
+  const low = Math.min(...pairs);
+  const ra = a >> 2;
+  const rb = b >> 2;
+  if (ra === rb) return ra > low;
+  return (cnt.get(ra) === 1 && ra > low) || (cnt.get(rb) === 1 && rb > low);
+}
+
 function mixOf(r: Range, board: Card[]): RangeMix | null {
   if (board.length < 3) return null;
   const mix = { strong: 0, pair: 0, draw: 0, air: 0 };
@@ -102,6 +117,7 @@ function mixOf(r: Range, board: Card[]): RangeMix | null {
     const val = evaluate(cards);
     let cat: number = categoryOf(val);
     if (board.length >= 5 && val === boardVal) cat = 0; // plays the board: no hand of their own
+    else if (boardCat === 2 && cat === 2 && ownTwoPair(a, b, board)) cat = 1; // a better two pair: one pair of their own
     else if (boardCat >= 1 && cat <= boardCat) cat = 0; // the pair / two pair / trips are the board's
     else if (boardCat === 1 && cat === 2) cat = 1; // one pair of their own on a paired board
     tot += w;
@@ -149,19 +165,24 @@ function continuing(
   add: number,
   pot: number,
   m: OpponentModel,
-  opts: { actedPreflop?: boolean; pos?: Position; aggressor?: boolean; openerPos?: Position; hu?: boolean; popVpip?: number } = {},
+  opts: { actedPreflop?: boolean; pos?: Position; aggressor?: boolean; openerPos?: Position; hu?: boolean; popVpip?: number; level?: number } = {},
 ): { share: number; range: Range } {
   const price = add / (pot + 2 * add);
   if (board.length < 3) {
     let share: number;
-    if (!opts.actedPreflop) {
+    const level = opts.level ?? 1;
+    if (!opts.actedPreflop && level >= 2) {
+      // a player who has not acted, facing a 3-bet or 4-bet cold: only a narrow, strong range goes on
+      share = (level === 2 ? 0.06 : 0.03) * clamp(m.vpip / (opts.popVpip ?? POPULATION.vpip), 0.6, 2);
+    } else if (!opts.actedPreflop) {
       // defending against an open from behind: big blind widest, then small blind
       // big blind defends wider against late-position opens, and much wider heads-up
       const late = opts.openerPos === 'BTN' || opts.openerPos === 'SB';
       const base = opts.hu ? 0.75 : opts.pos === 'BB' && opts.openerPos === 'SB' ? 0.62 : opts.pos === 'BB' ? (late ? 0.5 : opts.openerPos === 'CO' ? 0.44 : 0.36) : opts.pos === 'SB' ? 0.16 : 0.1;
       share = base * Math.sqrt(clamp(0.27 / Math.max(price, 0.05), 0.3, 3)) * clamp(m.vpip / (opts.popVpip ?? POPULATION.vpip), 0.6, 2.2);
     } else {
-      share = clamp(0.1 + 1.6 * (0.6 - price), 0.12, 0.85) * clamp((1 - m.foldTo3Bet) / (1 - POPULATION.foldTo3Bet), 0.6, 1.8);
+      // (fold-to-3-bet only describes facing a 3-bet, not a 4-bet)
+      share = clamp(0.1 + 1.6 * (0.6 - price), 0.12, 0.85) * (level === 2 ? clamp((1 - m.foldTo3Bet) / (1 - POPULATION.foldTo3Bet), 0.6, 1.8) : 1);
     }
     share = clamp(share, 0.04, 0.95);
     return { share, range: topOf(opts.actedPreflop ? r : r, share) };
@@ -238,7 +259,7 @@ export function analyzeDecision(
   const hu = np === 2;
   const realize = (eq: number, ip = inPosition): number => {
     if (river || callEndsBetting) return 1;
-    let r = street === 'preflop' ? (ip ? 0.88 : hu ? 0.8 : 0.72) : ip ? 0.95 : 0.85;
+    let r = street === 'preflop' ? (ip ? (hu ? 0.95 : 0.88) : hu ? 0.8 : 0.72) : ip ? 0.95 : 0.85;
     if (street === 'preflop' && !callEndsBetting) {
       // weak starting hands win far less than their raw equity after the flop
       // (heads-up ranges are much wider, so a hand ranks relatively higher)
@@ -250,7 +271,7 @@ export function analyzeDecision(
       // draws earn extra when they hit, but only with chips left to win
       const spr = effBehind / Math.max(1, potNow + callAmt);
       r = clamp(0.92 + 0.08 * Math.min(1, spr / 2), 0.9, 1.08) + (spr >= 2 ? 0.08 : 0);
-    } else if (eq < 0.4) r -= 0.08;
+    } else if (eq < 0.4 && !(hu && ip)) r -= 0.08; // (heads-up in position, ranges are wide and weak hands still realise)
     return r;
   };
 
@@ -298,6 +319,9 @@ export function analyzeDecision(
     if (heroAction.type === la.raiseType && heroAction.amount && !sizes.some((s) => s.to === heroAction.amount))
       sizes.push({ to: heroAction.amount, label: heroAction.amount === la.maxTo ? 'all-in' : 'your size' });
   }
+  // preflop: 1 = open / iso, 2 = 3-bet, 3 = 4-bet, ...
+  const raiseLevel = view.actions.filter((a) => a.street === 'preflop' && (a.type === 'raise' || a.type === 'bet')).length + 1;
+  const pcHand = CLASS_PERCENTILE[CLASS_INDEX.get(className(view.hole[0], view.hole[1]))!];
   const facingRaise = street !== 'preflop' && view.actions.some((a) => a.street === street && a.pi === view.me && (a.type === 'bet' || a.type === 'raise'));
   const seenTo = new Set<number>();
   for (const s of sizes) {
@@ -320,6 +344,7 @@ export function analyzeDecision(
         openerPos: positionOf(np, view.buttonPi, view.me),
         hu,
         popVpip: populationFor(np).vpip,
+        level: raiseLevel,
       });
       allFold *= 1 - c.share;
       contRanges.push(c.range);
@@ -330,14 +355,26 @@ export function analyzeDecision(
     const putIn = (q: (typeof responders)[number]) => Math.max(0, Math.min(s.to, q.streetBet + q.stack) - q.streetBet);
     let eqCalled: number;
     let evCalled: number;
-    if (street === 'preflop' || responders.length === 1 || responders.length > 3) {
-      // preflop: the most frequent caller; realisation from the position against that caller
-      const k = street === 'preflop' ? shares.indexOf(Math.max(...shares)) : -1;
-      const callers = k >= 0 ? [responders[k]] : responders;
-      eqCalled = equityVsRanges(view.hole, view.board, k >= 0 ? [contRanges[k]] : contRanges, 700, rng).equity;
-      const ipVs = k >= 0 ? hasPositionOn(np, view.buttonPi, view.me, responders[k].pi) : inPosition;
-      const rCalled = allIn || river ? 1 : realize(eqCalled, ipVs);
-      evCalled = eqCalled * (potNow + add + callers.reduce((t, q) => t + putIn(q), 0)) * rCalled - add;
+    if (street === 'preflop') {
+      // preflop: one caller at a time, weighted by how often each one continues;
+      // realisation from the position against that caller
+      let sumW = 0;
+      let sumEq = 0;
+      let sumEv = 0;
+      responders.forEach((q, k) => {
+        if (shares[k] < 0.005) return;
+        const eq = equityVsRanges(view.hole, view.board, [contRanges[k]], 600, rng).equity;
+        const rC = allIn ? 1 : realize(eq, hasPositionOn(np, view.buttonPi, view.me, q.pi));
+        sumW += shares[k];
+        sumEq += shares[k] * eq;
+        sumEv += shares[k] * (eq * (potNow + add + putIn(q)) * rC - add);
+      });
+      eqCalled = sumW > 0 ? sumEq / sumW : 0;
+      evCalled = sumW > 0 ? sumEv / sumW : -add;
+    } else if (responders.length === 1 || responders.length > 3) {
+      eqCalled = equityVsRanges(view.hole, view.board, contRanges, 700, rng).equity;
+      const rCalled = allIn || river ? 1 : realize(eqCalled);
+      evCalled = eqCalled * (potNow + add + responders.reduce((t, q) => t + putIn(q), 0)) * rCalled - add;
     } else {
       // multiway: each opponent continues independently; average over who actually calls
       let sumP = 0;
@@ -376,9 +413,12 @@ export function analyzeDecision(
       });
       pReraise = Math.min(pReraise, 1 - allFold);
       const pCall = 1 - allFold - pReraise;
-      const pc = CLASS_PERCENTILE[CLASS_INDEX.get(className(view.hole[0], view.hole[1]))!] * (hu ? 0.6 : 1);
-      // premiums profit from a re-raise; good hands continue often enough to lose only part of the raise
-      const vsReraise = pc < 0.06 ? evCalled * 1.3 : pc < 0.2 ? -0.55 * add : -add;
+      // premiums profit from a re-raise; good hands continue often enough to lose only part of the raise.
+      // Against a re-raise of a 3-bet or 4-bet only the very top of the range can continue.
+      const pc = pcHand * (hu && raiseLevel === 1 ? 0.6 : 1);
+      const premium = raiseLevel === 1 ? 0.06 : raiseLevel === 2 ? 0.025 : 0.012;
+      const good = raiseLevel === 1 ? 0.2 : raiseLevel === 2 ? 0.08 : 0.03;
+      const vsReraise = pc < premium ? evCalled * 1.3 : pc < good ? -0.55 * add : -add;
       ev = allFold * potNow + pCall * evCalled + pReraise * vsReraise;
     }
     options.push({
@@ -389,6 +429,8 @@ export function analyzeDecision(
       foldPct: allFold,
       eqWhenCalled: eqCalled,
       overbet: street !== 'preflop' && add > 1.1 * (potNow + toCall),
+      // light 4-bets and above: shown, but not the yardstick for judging a call or fold
+      light: street === 'preflop' && raiseLevel >= 3 && pcHand > 0.05,
     });
   }
 
@@ -399,7 +441,7 @@ export function analyzeDecision(
       ? (pick(heroAction.type, heroAction.amount) ?? { ev: NaN }).ev
       : (pick(heroAction.type) ?? { ev: 0 }).ev;
   const heroOpt = (o: OptionEV) => o.kind === heroAction.type && (o.to === undefined || o.to === heroAction.amount);
-  const comparable = options.filter((o) => !isNaN(o.ev) && (!o.overbet || heroOpt(o)));
+  const comparable = options.filter((o) => !isNaN(o.ev) && ((!o.overbet && !o.light) || heroOpt(o)));
   const best = comparable.reduce((a, b) => (b.ev > a.ev ? b : a), comparable[0]);
   const evLoss = isNaN(heroEV) ? 0 : Math.max(0, best.ev - heroEV);
 
@@ -426,7 +468,7 @@ export function analyzeDecision(
     const boardCat = categoryOf(evaluate(view.board));
     if (v === boardOnly) made = `only the board (${describeHandDetailed(v)})`;
     else if (categoryOf(v) === 1 && boardCat === 1) made = `${cls}, no pair of your own (the pair is on the board)`;
-    else if (boardCat >= 2 && categoryOf(v) === boardCat) made = `${cls}, nothing of your own (the ${describeHandDetailed(evaluate(view.board)).split(' (')[0].toLowerCase()} is on the board)`;
+    else if (boardCat >= 2 && categoryOf(v) === boardCat && !(boardCat === 2 && ownTwoPair(view.hole[0], view.hole[1], view.board))) made = `${cls}, nothing of your own (the ${describeHandDetailed(evaluate(view.board)).split(' (')[0].toLowerCase()} is on the board)`;
     else made = describeHandDetailed(v);
   }
   const handName =

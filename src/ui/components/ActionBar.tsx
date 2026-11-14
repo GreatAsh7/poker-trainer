@@ -83,7 +83,7 @@ export function ActionBar(p: Props) {
     const onKey = (e: KeyboardEvent) => {
       const h = handlers.current;
       if (!h.active || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (document.querySelector('.modal')) return; // dialogs own the keyboard
+      if (document.querySelector('.modal:not(.modal--closing)')) return; // dialogs own the keyboard
       const target = e.target as HTMLElement | null;
       const type = target && target.tagName === 'INPUT' ? (target as HTMLInputElement).type : '';
       const inText = type === 'number';
@@ -105,8 +105,8 @@ export function ActionBar(p: Props) {
         e.preventDefault();
         h.checkCall();
       } else if (k === 'r' || k === 'b' || k === 'enter') {
-        // Enter on a focused action button activates it natively; on a preset it submits the raise
-        if (target && target.tagName === 'BUTTON' && k === 'enter' && !target.classList.contains('preset') && !target.classList.contains('sizer__step')) return;
+        // Enter on any focused button activates that button natively (a preset applies its size; it never submits a different amount)
+        if (target && target.tagName === 'BUTTON' && k === 'enter') return;
         e.preventDefault();
         h.raise();
       } else if (h.legal?.raiseType && (k === 'arrowup' || k === 'arrowright' || k === 'arrowdown' || k === 'arrowleft')) {
@@ -203,7 +203,7 @@ export function ActionBar(p: Props) {
             data-testid="btn-raise"
             title={`${raiseLabel} (R or Enter)`}
           >
-            {!active ? 'Raise' : allIn || legal?.raiseAllInOnly ? 'All-in' : raiseLabel}{' '}
+            {!active || !legal?.raiseType || !textValid ? (legal?.raiseType === 'bet' ? 'Bet' : 'Raise') : allIn || legal?.raiseAllInOnly ? 'All-in' : raiseLabel}{' '}
             <span className="btn__amt">{active && legal?.raiseType && textValid ? fmtChips(parsed) : ''}</span>
             <kbd>R</kbd>
           </button>

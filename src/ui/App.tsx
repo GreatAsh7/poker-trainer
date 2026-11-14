@@ -42,7 +42,7 @@ export function App() {
   const [reports, setReports] = useState<MatchReport[]>(() => loadReports());
   const [building, setBuilding] = useState<'idle' | 'building' | 'error'>('idle');
   const [lastSetup, setLastSetup] = useState<MatchSetup | null>(null);
-  const [showLog, setShowLog] = useState(() => window.innerWidth >= 1200);
+  const [showLog, setShowLog] = useState(() => window.innerWidth >= 1280);
   const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs());
   const setPrefs = (p: Prefs) => {
     setPrefsState(p);
@@ -100,6 +100,12 @@ export function App() {
   const [timerLeft, setTimerLeft] = useState(0);
   const [timerDelay, setTimerDelay] = useState(0);
   const timerRemaining = useRef(0);
+  const [timedOut, setTimedOut] = useState('');
+  useEffect(() => {
+    if (!timedOut) return;
+    const t = setTimeout(() => setTimedOut(''), 2500);
+    return () => clearTimeout(t);
+  }, [timedOut]);
   // a new decision gets the full time
   useEffect(() => {
     timerRemaining.current = prefs.turnTimer * 1000;
@@ -114,7 +120,10 @@ export function App() {
     setTimerDelay(prefs.turnTimer * 1000 - left);
     setTimerLeft(Math.ceil(left / 1000));
     const tick = setInterval(() => setTimerLeft(Math.max(0, Math.ceil((left - (performance.now() - started)) / 1000))), 250);
-    const t = setTimeout(() => ctrl.act(legal.canCheck ? { type: 'check' } : { type: 'fold' }), left);
+    const t = setTimeout(() => {
+      setTimedOut(legal.canCheck ? 'Time’s up: you checked' : 'Time’s up: you folded');
+      ctrl.act(legal.canCheck ? { type: 'check' } : { type: 'fold' });
+    }, left);
     return () => {
       clearTimeout(t);
       clearInterval(tick);
@@ -161,8 +170,9 @@ export function App() {
       const t = e.target as HTMLElement | null;
       const type = t && t.tagName === 'INPUT' ? (t as HTMLInputElement).type : '';
       if (type === 'number' || type === 'text' || (t && t.tagName === 'TEXTAREA')) return;
-      if (document.querySelector('.modal')) return;
-      const inTopBar = !!t?.closest?.('.topbar');
+      if (document.querySelector('.modal:not(.modal--closing)')) return;
+      // top-bar and hand-log buttons keep focus after a click or a closed dialog: Space still means skip / next hand there
+      const inTopBar = !!t?.closest?.('.topbar') || !!t?.closest?.('.log');
       if (e.key === ' ' && screen === 'table' && t && !inTopBar && (t.tagName === 'BUTTON' || type === 'checkbox' || type === 'range')) return;
       if (e.key === ' ' && inTopBar) (t as HTMLElement).blur();
       if (e.key === ' ' && screen === 'table') {
@@ -266,9 +276,10 @@ export function App() {
     (snap.match.handsPlayed >= snap.handsTotal || (snap.match.seats[0].stack <= 0 && !snap.match.seats[0].autoRebuy));
   let waiting = '';
   const nextActor = h && !h.finished && h.toAct >= 0 && h.toAct !== snap.userPi ? h.players[h.toAct].name : null;
-  if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
+  if (timedOut) waiting = timedOut;
+  else if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
   else if (nextActor) waiting = `${nextActor} to act`;
-  else if (snap.phase === 'handOver' && lastHand) waiting = 'Match finished — press Space to see your report';
+  else if (snap.phase === 'handOver' && lastHand) waiting = snap.match!.seats[0].stack <= 0 ? 'You ran out of chips — press Space to see your report' : 'Match finished — press Space to see your report';
   else if (snap.phase === 'handOver') waiting = prefs.pauseAfterHand ? 'Hand over — press Space or “Next hand” to continue' : 'Hand over — next hand coming up';
   if (heroDisplay?.folded && snap.phase === 'playing') waiting = `You folded — watching the rest of the hand${thinkingName ? ` · ${thinkingName} is thinking…` : ''}`;
   const preActs = h ? h.actions.filter((a) => a.street === 'preflop') : [];

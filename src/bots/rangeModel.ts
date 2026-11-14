@@ -58,7 +58,8 @@ export function preflopRange(view: PlayerView, pi: number, model: OpponentModel 
           const base = limps > 0 || pos === 'BB' ? chart(ISO) : chart(RFI[pos as Exclude<Pos, 'BB'>]);
           intersect(r, scaleRange(base, aggro * (hu ? 1.7 : 1)), raiseFloor);
         } else if (raises === 1) {
-          intersect(r, scaleRange(chart(THREE_BET[openerGroup(openerPos ?? 'CO')]), tbRatio * (hu ? 1.5 : 1)), threeBetFloor);
+          // heads-up the 3-bet chart (about 6.8% of hands) is scaled to the observed 3-bet rate
+          intersect(r, scaleRange(chart(THREE_BET[openerGroup(openerPos ?? 'CO')]), hu ? clamp(model.threeBet / 0.068, 0.8, 8) : tbRatio), threeBetFloor);
         } else if (raises === 2) intersect(r, scaleRange(chart(VS_3BET.fourBet), Math.sqrt(aggro * tbRatio)), threeBetFloor * 0.5);
         else intersect(r, chart(VS_4BET.jam), threeBetFloor * 0.3);
       } else if (a.type === 'call') {

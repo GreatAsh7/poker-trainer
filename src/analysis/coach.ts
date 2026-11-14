@@ -208,7 +208,7 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
     if (hero === 'call' && call && (best === 'fold' || -call.ev / bb >= threshold)) {
       return {
         kind: 'call-no-odds',
-        text: `You called ${d.toCall} into a pot of ${d.pot} ${where}. That price needs ${pct(d.need)} equity; your ${d.handName} had about ${pct(d.equity)} ${against(d)}.${realisedNote} On average the call loses about ${chips(-call!.ev)} chips (${bbs(-call!.ev, bb)}); folding loses nothing more.`,
+        text: `You called ${d.toCall} into a pot of ${d.pot} ${where}. That price needs ${pct(d.need)} equity; your ${d.handName} had about ${pct(d.equity)} ${against(d)}.${realisedNote} On average the call loses about ${chips(-call!.ev)} chips (${bbs(-call!.ev, bb)}); ${best === 'fold' ? 'folding loses nothing more' : `folding loses nothing more, and ${d.best.label.toLowerCase()} was worth about +${bbs(d.best.ev, bb)}`}.`,
       };
     }
     if (hero === 'fold' && call && call.ev / bb >= threshold) {

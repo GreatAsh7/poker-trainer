@@ -26,7 +26,7 @@ test('a full match ends with a coaching report that is saved for next time', asy
   await page.getByRole('tab', { name: /Hand-by-hand/ }).click();
   await expect(page.getByRole('heading', { name: 'Hand-by-hand review' })).toBeVisible();
   // saved: back to setup shows the saved-report link
-  await page.getByRole('button', { name: 'New match settings' }).click();
+  await page.getByRole('button', { name: 'Change settings' }).click();
   await expect(page.getByRole('button', { name: /View your last report/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
