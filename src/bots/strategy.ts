@@ -321,6 +321,9 @@ function preflopDefend(c: Ctx, realize: number, why: string): BotDecision | null
   if (c.voluntary.length !== 1) return null;
   const eq = equityVsRanges(c.v.hole, c.v.board, oppRanges(c), 500, c.rng).equity;
   const need = c.toCall / (c.pot + c.toCall);
+  // weak hands realise much less of their raw equity out of position (heads-up ranges are wider)
+  const pctl = CLASS_PERCENTILE[CLASS_INDEX.get(className(c.v.hole[0], c.v.hole[1]))!] * (c.v.players.length === 2 ? 0.6 : 1);
+  realize *= pctl < 0.3 ? 1 : pctl < 0.5 ? 0.93 : pctl < 0.7 ? 0.86 : 0.8;
   if (eq * realize >= need)
     return { action: { type: 'call' }, reason: `defend ${why}: equity ${(eq * 100).toFixed(0)}% × ${realize} realised ≥ ${(need * 100).toFixed(0)}% needed` };
   return null;

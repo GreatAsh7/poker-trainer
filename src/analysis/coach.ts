@@ -158,23 +158,28 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
   const where = streetName(d.street);
   const sameKind = hero === best;
   const pre = d.street === 'preflop';
-  const threshold = pre ? Math.max(0.75, (0.08 * d.pot) / bb) : Math.max(1.5, (0.08 * d.pot) / bb);
+  // short-stack preflop spots are small in chips but repeat constantly: flag smaller losses
+  const shoveOpt = d.options.find((o) => o.label.startsWith('All-in'));
+  const preMin = shoveOpt && (shoveOpt.to ?? 0) / bb <= 20 ? 0.4 : 0.75;
+  const threshold = pre ? Math.max(preMin, (0.08 * d.pot) / bb) : Math.max(1.5, (0.08 * d.pot) / bb);
   const opt = (k: string) => d.options.find((o) => o.kind === k);
   const call = opt('call');
   // equity actually realised by a call (after position / future betting), for explanations
   const realised = call ? (call.ev + d.toCall) / Math.max(1, d.pot + d.toCall) : d.equity;
   const realisedNote =
     call && Math.abs(realised - d.equity) >= 0.02
-      ? ` Out of position and with betting still to come you only realise about ${pct(realised)} of that.`
+      ? realised < d.equity
+        ? ` With betting still to come you can expect to win only about ${pct(realised)} of the pot on average, not the full ${pct(d.equity)}.`
+        : ` With betting still to come you can expect to win about ${pct(realised)} of the pot on average.`
       : '';
   const raiseOpt = d.options.filter((o) => o.kind === 'raise' || o.kind === 'bet').reduce<OptionEV | null>((a, b) => (!a || b.ev > a.ev ? b : a), null);
 
   // ------------------------------------------------ preflop, first in
   // first in: a hand far outside the opening chart is a leak even when each open costs only a little
-  const farOutside = !!d.openChart && d.openChart.inRange === 0 && d.handPercentile > 2 * d.openChart.rangePct;
-  if (pre && d.unopened && !sameKind && (lossBB >= threshold || (farOutside && lossBB >= 0.3 && (hero === 'raise' || hero === 'bet')))) {
-    const posTxt = d.position === 'UTG' ? 'under the gun' : d.position === 'BB' || d.position === 'SB' ? `from the ${d.position === 'SB' ? 'small blind' : 'big blind'}` : `from the ${d.position}`;
-    const chartTxt = d.openChart ? `a standard ${d.position} opening range is about the top ${pct(d.openChart.rangePct)} of hands` : '';
+  const farOutside = !!d.openChart && d.openChart.inRange === 0 && d.handPercentile > Math.min(2 * d.openChart.rangePct, d.openChart.rangePct + 0.35);
+  if (pre && d.unopened && !sameKind && (lossBB >= threshold || (farOutside && lossBB >= 0.1 && (hero === 'raise' || hero === 'bet')))) {
+    const posTxt = d.headsUp && d.position === 'SB' ? 'on the button heads-up' : d.position === 'UTG' ? 'under the gun' : d.position === 'BB' || d.position === 'SB' ? `from the ${d.position === 'SB' ? 'small blind' : 'big blind'}` : `from the ${d.position}`;
+    const chartTxt = d.openChart ? `a standard ${d.headsUp ? 'heads-up button' : d.position} opening range is about the top ${pct(d.openChart.rangePct)} of hands` : '';
     if (hero === 'call') {
       return {
         kind: 'limp',
@@ -233,7 +238,7 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
     }
     if ((hero === 'bet' || hero === 'raise') && (best === 'check' || best === 'fold' || best === 'call') && !pre) {
       const mine = d.options.find((o) => o.kind === hero && o.to === d.heroAction.amount);
-      if (d.equity < 0.4)
+      if (d.equity < 0.4 && d.equity < 1 / (d.nOpp + 1))
         return {
           kind: 'bad-bluff',
           text: `You ${pastLabel(d.heroAction)} ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). As a bluff it needs folds, but that range folds only about ${pct(mine?.foldPct ?? 0)} of the time to this size${mine?.eqWhenCalled !== undefined ? `, and when called you have ${pct(mine.eqWhenCalled)}` : ''}. ${d.best.label} was about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) better.`,
@@ -262,7 +267,9 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
     const second = others.reduce((a, b) => (b.ev > a.ev ? b : a), others[0]);
     const margin = d.best.ev - second.ev;
     if (margin / bb >= Math.max(2, (0.1 * d.pot) / bb)) {
-      if (hero === 'fold' && call && call.ev < 0)
+      // only folds that were real decisions: not trash preflop, not hands that were nowhere near the price
+      const realFold = d.equity >= 0.6 * d.need && !(pre && d.handPercentile > 0.5);
+      if (hero === 'fold' && call && call.ev < 0 && realFold)
         return {
           kind: 'good-fold',
           text: `Good fold ${where}: calling ${d.toCall} needed ${pct(d.need)} equity and your ${d.handName} had only about ${pct(d.equity)} ${against(d)}. The call would have lost about ${chips(-call.ev)} chips.`,
@@ -560,11 +567,11 @@ export function buildReport(inp: ReportInput): MatchReport {
     const name = hands.find((h) => h.players.some((p) => p.id === id))!.players.find((p) => p.id === id)!.name;
     if (s.foldToCbet.opp >= 10 && rate(s.foldToCbet) >= 0.65)
       exploits.push({ title: `C-bet more against ${name}`, text: `${name} folded to ${pct(rate(s.foldToCbet))} of flop continuation bets (${s.foldToCbet.n} of ${s.foldToCbet.opp}). A small bet (about ⅓ pot) only needs to work 25% of the time to profit, so bet the flop with almost any hand after raising preflop.` });
-    if (s.wtsd.opp >= 15 && rate(s.wtsd) >= 0.45 && rate(s.vpip) >= 0.3)
+    if (s.wtsd.opp >= 25 && rate(s.wtsd) >= 0.45 && rate(s.vpip) >= 0.3)
       exploits.push({ title: `Value bet thinner against ${name}`, text: `${name} went to showdown ${pct(rate(s.wtsd))} of the time after seeing a flop (${s.wtsd.n} of ${s.wtsd.opp}). Bet top pair and even second pair for value on every street, and don't bluff: they won't fold.` });
     if (s.vpip.opp >= 25 && rate(s.vpip) <= 0.16)
       exploits.push({ title: `Respect ${name}'s raises, steal their blinds`, text: `${name} played only ${pct(rate(s.vpip))} of hands. When they raise or re-raise they usually have a strong hand, so fold medium pairs and weak aces; but raise their blinds often, since they defend rarely.` });
-    if (s.threeBet.opp >= 15 && rate(s.threeBet) >= 0.12)
+    if (s.threeBet.opp >= 30 && rate(s.threeBet) >= 0.12)
       exploits.push({ title: `Fight back against ${name}'s re-raises`, text: `${name} 3-bet ${pct(rate(s.threeBet))} of the time (${s.threeBet.n} of ${s.threeBet.opp}), far above the usual 6–10%. Call more of their re-raises with good hands like suited broadways and pairs, and 4-bet your premiums.` });
     if (s.foldTo3Bet.opp >= 8 && rate(s.foldTo3Bet) >= 0.7)
       exploits.push({ title: `Re-raise ${name} light`, text: `${name} folded to ${pct(rate(s.foldTo3Bet))} of re-raises (${s.foldTo3Bet.n} of ${s.foldTo3Bet.opp}). A 3-bet to about 3× their open wins the pot immediately most of the time, so 3-bet them with suited aces and suited connectors too.` });

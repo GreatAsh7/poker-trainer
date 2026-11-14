@@ -112,4 +112,33 @@ describe('coach regressions', () => {
     const r = buildReport({ hands: [h], heroId: 'you', settings: { ...settings, players: 3 } });
     expect(r.decisions[18].at(-1)!.kind).toBe('missed-value');
   });
+
+  it('heads-up, the button opens wide: 65o is not flagged as too weak', () => {
+    const h = handN(30, ['6c5d', 'Kh9s'], '', ['r5', 'f'], [200, 200]);
+    const a = lastDecision(h);
+    expect(a.openChart!.rangePct).toBeGreaterThan(0.75);
+    expect(a.evLoss / a.bigBlind).toBeLessThan(0.3); // at worst a marginal open
+    const r = buildReport({ hands: [h], heroId: 'you', settings: { ...settings, players: 2 } });
+    expect(r.decisions[30]?.[0]?.kind ?? null).toBeNull();
+  });
+
+  it('opening 72o on the button is flagged as a loose open', () => {
+    const h = handN(31, ['7c2d', '4h5s', '8c9d', '9h3s', 'JcQd', 'Kh6s'], '', ['f', 'f', 'f', 'r5', 'f', 'f'], six);
+    const r = buildReport({ hands: [h], heroId: 'you', settings });
+    expect(r.decisions[31][0].kind).toBe('loose-open');
+  });
+
+  it('call explanations never claim the caller is out of position', () => {
+    const h = handN(32, ['8c5d', '4h4s', '7c8d', '9h2s', 'JcQd', 'AhJh'], '2d 7d Kc 4c 9c', ['f', 'f', 'r5', 'c', 'f', 'f', 'x', 'x', 'x', 'x', 'x', 'x'], six);
+    const r = buildReport({ hands: [h], heroId: 'you', settings });
+    for (const n of r.decisions[32] ?? []) expect(n.text).not.toMatch(/out of position/i);
+  });
+
+  it('a pot-sized value bet with the nuts is not judged against an overbet shove', () => {
+    const h = handN(33, ['AhKh', 'QcJd'], '2h 7h 9h Tc 3s', ['r5', 'c', 'x', 'x', 'x', 'x', 'x', 'b10'], [200, 200]);
+    const a = lastDecision(h);
+    expect(a.best.overbet ?? false).toBe(false);
+    const r = buildReport({ hands: [h], heroId: 'you', settings: { ...settings, players: 2 } });
+    expect(r.decisions[33].at(-1)?.kind ?? null).not.toBe('sizing');
+  });
 });
