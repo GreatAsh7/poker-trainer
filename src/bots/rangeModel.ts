@@ -123,8 +123,10 @@ function likelihood(
       let value: number;
       if (raise) {
         // raises are value-heavy, river raises most of all
-        value = river ? (s >= 0.9 ? 1 : s >= 0.8 ? 0.3 : s >= 0.65 ? 0.06 : 0.02) : s >= 0.9 ? 1 : s >= 0.78 ? 0.45 : s >= 0.6 ? 0.12 : 0.04;
-        if (s < 0.9) value = Math.min(1, value * clamp(aggRatio * Math.sqrt(tight), 0.5, 1.4));
+        value = river
+          ? s >= 0.96 ? 1 : s >= 0.9 ? 0.15 : s >= 0.8 ? 0.04 : 0.02
+          : s >= 0.94 ? 1 : s >= 0.85 ? 0.4 : s >= 0.7 ? 0.12 : 0.04;
+        if (s < 0.94) value = Math.min(1, value * clamp(aggRatio * Math.sqrt(tight), 0.5, 1.4));
       } else {
         value = s >= 0.85 ? 1 : s >= 0.7 ? (big ? 0.55 : 0.8) : s >= 0.55 ? (big ? 0.2 : 0.45) : s >= 0.4 ? 0.2 : 0.08;
         // aggressive players also bet their medium hands more often (not only bluffs)
@@ -175,6 +177,7 @@ export function estimateRange(view: PlayerView, pi: number, model: OpponentModel
     if (b.length < 3 || reading <= 0) continue;
     const t = boardTable(b);
     const checkRaise = a.type === 'raise' && view.actions.some((x) => x.pi === pi && x.street === a.street && x.type === 'check');
+    const checksFirst = a.type === 'check' && view.actions.find((x) => x.street === a.street) === a;
     for (let i = 0; i < NUM_COMBOS; i++) {
       if (r[i] <= 0) continue;
       const s = t.strength[i];
@@ -184,7 +187,9 @@ export function estimateRange(view: PlayerView, pi: number, model: OpponentModel
       }
       let l = likelihood(a, s, t.draw[i], a.street, model, typicalVpip);
       // a check-raise is stronger still than a raise
-      if (checkRaise && s < 0.9) l *= 0.5;
+      if (checkRaise && s < 0.96) l *= a.street === 'river' ? 0.2 : 0.4;
+      // checking first (to the player with the betting lead) is what nearly every hand does
+      if (checksFirst) l = 1;
       r[i] *= reading === 1 ? l : Math.pow(l, reading);
     }
   }

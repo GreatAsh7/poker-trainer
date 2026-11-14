@@ -97,4 +97,19 @@ describe('coach regressions', () => {
     expect(bet.foldPct!).toBeLessThan(0.45);
     expect(bet.ev).toBeLessThan(a.options.find((o) => o.kind === 'check')!.ev);
   });
+
+  it('a population river check-raise is mostly two pair or better: folding top pair is fine, calling is not', () => {
+    // 6-max, hero BTN KJ vs the BB: BB check-calls flop and turn, then check-raises the river
+    const h = handN(17, ['KdJc', '8c4s', '7c7d', '6c5s', 'Js4d', 'Qd6d'], 'Ks 7s 2c 3d 9h',
+      ['f', 'f', 'f', 'r5', 'f', 'c', 'x', 'b6', 'c', 'x', 'b12', 'c', 'x', 'b30', 'r100', 'c'], six);
+    const a = lastDecision(h);
+    expect(a.villainMix!.strong).toBeGreaterThan(0.75);
+    expect(a.best.kind).toBe('fold');
+  });
+
+  it('checking back the nuts on the river (closing the action) is a missed value bet', () => {
+    const h = handN(18, ['AsKs', '7c7d', '9h2d'], 'Qs 8s 3s 5d 2c', ['r5', 'f', 'c', 'x', 'x', 'x', 'x', 'x', 'x'], [200, 200, 200]);
+    const r = buildReport({ hands: [h], heroId: 'you', settings: { ...settings, players: 3 } });
+    expect(r.decisions[18].at(-1)!.kind).toBe('missed-value');
+  });
 });

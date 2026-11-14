@@ -134,6 +134,12 @@ function streetName(s: string) {
 const pastLabel = (a: Action) =>
   a.type === 'fold' ? 'folded' : a.type === 'check' ? 'checked' : a.type === 'call' ? 'called' : a.type === 'bet' ? `bet ${a.amount}` : `raised to ${a.amount}`;
 
+/** "Raise to 36 (3-bet)" → "raise to 36 (3-bet)", "All-in (82)" → "go all-in (82)" */
+function bestPhrase(label: string): string {
+  if (/^all-in/i.test(label)) return `go ${label.toLowerCase()}`;
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
 /** "against Dex's likely range (…)" or, multiway, "against your 2 opponents (Dex's likely range: …)" */
 function against(d: DecisionAnalysis): string {
   const villain = d.villainName || 'your opponent';
@@ -164,8 +170,10 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
   const raiseOpt = d.options.filter((o) => o.kind === 'raise' || o.kind === 'bet').reduce<OptionEV | null>((a, b) => (!a || b.ev > a.ev ? b : a), null);
 
   // ------------------------------------------------ preflop, first in
-  if (pre && d.unopened && !sameKind && lossBB >= threshold) {
-    const posTxt = `from the ${d.position}`;
+  // first in: a hand far outside the opening chart is a leak even when each open costs only a little
+  const farOutside = !!d.openChart && d.openChart.inRange === 0 && d.handPercentile > 2 * d.openChart.rangePct;
+  if (pre && d.unopened && !sameKind && (lossBB >= threshold || (farOutside && lossBB >= 0.3 && (hero === 'raise' || hero === 'bet')))) {
+    const posTxt = d.position === 'UTG' ? 'under the gun' : d.position === 'BB' || d.position === 'SB' ? `from the ${d.position === 'SB' ? 'small blind' : 'big blind'}` : `from the ${d.position}`;
     const chartTxt = d.openChart ? `a standard ${d.position} opening range is about the top ${pct(d.openChart.rangePct)} of hands` : '';
     if (hero === 'call') {
       return {
@@ -192,7 +200,7 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
   }
 
   if (!sameKind && lossBB >= threshold) {
-    if (hero === 'call' && best === 'fold') {
+    if (hero === 'call' && call && (best === 'fold' || -call.ev / bb >= threshold)) {
       return {
         kind: 'call-no-odds',
         text: `You called ${d.toCall} into a pot of ${d.pot} ${where}. That price needs ${pct(d.need)} equity; your ${d.handName} had about ${pct(d.equity)} ${against(d)}.${realisedNote} On average the call loses about ${chips(-call!.ev)} chips (${bbs(-call!.ev, bb)}); folding loses nothing more.`,
@@ -220,7 +228,7 @@ function classify(d: DecisionAnalysis): { kind: DecisionNote['kind']; text: stri
       if (d.hadInitiative && d.street !== 'river' && d.nOpp === 1)
         return {
           kind: 'missed-bet',
-          text: `You raised last on the previous street but checked ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). ${o.label} makes ${villain} fold about ${pct(o.foldPct ?? 0)} of the time${o.eqWhenCalled !== undefined ? ` and keeps ${pct(o.eqWhenCalled)} equity when called` : ''}: a continuation bet was worth about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more than checking.`,
+          text: `You had the betting lead from the previous street but checked ${where} with ${d.handName} (about ${pct(d.equity)} ${against(d)}). ${o.label} makes ${villain} fold about ${pct(o.foldPct ?? 0)} of the time${o.eqWhenCalled !== undefined ? ` and keeps ${pct(o.eqWhenCalled)} equity when called` : ''}: ${d.street === 'flop' ? 'a continuation bet' : 'following up with another bet'} was worth about ${chips(d.evLoss)} chips (${bbs(d.evLoss, bb)}) more than checking.`,
         };
     }
     if ((hero === 'bet' || hero === 'raise') && (best === 'check' || best === 'fold' || best === 'call') && !pre) {
@@ -527,7 +535,7 @@ export function buildReport(inp: ReportInput): MatchReport {
         net: h.won[pi] - h.players[pi].totalBet,
         situation: situation(h, pi, worst.d),
         did: `You ${worst.note.heroPast} ${streetName(worst.note.street)}.`,
-        better: `A strong player would ${worst.note.bestLabel.toLowerCase()}.`,
+        better: `A strong player would ${bestPhrase(worst.note.bestLabel)}.`,
         why: ms.map((m) => `${m.note.street[0].toUpperCase()}${m.note.street.slice(1)}: ${m.note.text}`),
         evLossBB: loss / bb,
       };
@@ -594,8 +602,8 @@ export function buildReport(inp: ReportInput): MatchReport {
 
   const luck = allInActual - allInEV;
   const summary =
-    `${net >= 0 ? 'You won' : 'You lost'} ${bbs(Math.abs(net), bb)} over ${nHands} hands (${((net / bb / Math.max(1, nHands)) * 100).toFixed(1).replace('-', '−')} BB per 100 hands). ` +
-    `The analysis found ${mistakes.length} costly decision${mistakes.length === 1 ? '' : 's'} worth about ${bbs(lossTotal, bb)} in total (${evLossBB100.toFixed(1)} BB per 100 hands)` +
+    `${net >= 0 ? 'You won' : 'You lost'} ${bbs(Math.abs(net), bb)} over ${nHands} hand${nHands === 1 ? '' : 's'}${nHands >= 15 ? ` (${((net / bb / Math.max(1, nHands)) * 100).toFixed(1).replace('-', '−')} BB per 100 hands)` : ''}. ` +
+    `The analysis found ${mistakes.length} costly decision${mistakes.length === 1 ? '' : 's'} worth about ${bbs(lossTotal, bb)} in total${nHands >= 15 ? ` (${evLossBB100.toFixed(1)} BB per 100 hands)` : ''}` +
     (allInCount
       ? Math.abs(luck) < bb / 2
         ? ', and your all-ins came out almost exactly as expected.'
@@ -713,7 +721,7 @@ function situation(h: HandState, pi: number, d: DecisionAnalysis): string {
   // the preflop action that mattered, in order (folds left out)
   const parts: string[] = [];
   let raises = 0;
-  for (const a of h.actions) {
+  for (const a of h.actions.slice(0, d.actionIndex)) {
     if (a.street !== 'preflop' || a.type === 'fold' || a.type === 'check') continue;
     if (a.type === 'raise' || a.type === 'bet') {
       raises++;

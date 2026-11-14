@@ -88,15 +88,16 @@ function mixOf(r: Range, board: Card[]): RangeMix | null {
   let tot = 0;
   const cards: Card[] = [0, 0, ...board];
   const t = boardTable(board);
-  const boardCat = board.length >= 5 ? categoryOf(evaluate(board)) : -1;
+  const boardVal = board.length >= 5 ? evaluate(board) : -1;
   for (let i = 0; i < NUM_COMBOS; i++) {
     const w = r[i];
     if (w <= 0) continue;
     const [a, b] = COMBO_CARDS[i];
     cards[0] = a;
     cards[1] = b;
-    let cat: number = categoryOf(evaluate(cards));
-    if (cat === boardCat) cat = 0; // only the board's hand: no hand of their own
+    const val = evaluate(cards);
+    let cat: number = categoryOf(val);
+    if (board.length >= 5 && val === boardVal) cat = 0; // plays the board: no hand of their own
     tot += w;
     if (cat >= 2) mix.strong += w;
     else if (cat === 1) mix.pair += w;
@@ -129,41 +130,57 @@ function topOf(r: Range, share: number): Range {
 
 /**
  * Share of a range that continues facing a bet that adds `add` into `pot`, and the
- * continuing range. Bigger bets need stronger hands; players who fold more (or less)
- * than usual in this match are adjusted accordingly.
+ * continuing range.
+ * - Preflop, a player who has not acted yet defends by position (big blind widest);
+ *   a player who already raised continues with the top part of their range by price.
+ * - Postflop, players continue with the top part of their own range, close to minimum
+ *   defence (1 − 1.6 × price), wider if they have already bet this street, and adjusted by
+ *   how often they actually folded to bets this match.
  */
-function continuing(r: Range, board: Card[], add: number, pot: number, m: OpponentModel): { share: number; range: Range } {
+function continuing(
+  r: Range,
+  board: Card[],
+  add: number,
+  pot: number,
+  m: OpponentModel,
+  opts: { actedPreflop?: boolean; pos?: Position; aggressor?: boolean } = {},
+): { share: number; range: Range } {
   const price = add / (pot + 2 * add);
   if (board.length < 3) {
-    // preflop: continue with the best part of the range, wider when the price is good
-    const share = clamp(
-      clamp(0.1 + 1.6 * (0.6 - price), 0.12, 0.85) * clamp((1 - m.foldTo3Bet) / (1 - POPULATION.foldTo3Bet), 0.6, 1.8),
-      0.05,
-      0.95,
-    );
-    return { share, range: topOf(r, share) };
+    let share: number;
+    if (!opts.actedPreflop) {
+      // defending against an open from behind: big blind widest, then small blind
+      const base = opts.pos === 'BB' ? 0.38 : opts.pos === 'SB' ? 0.16 : 0.1;
+      share = base * Math.sqrt(clamp(0.27 / Math.max(price, 0.05), 0.3, 3)) * clamp(m.vpip / POPULATION.vpip, 0.6, 2.2);
+    } else {
+      share = clamp(0.1 + 1.6 * (0.6 - price), 0.12, 0.85) * clamp((1 - m.foldTo3Bet) / (1 - POPULATION.foldTo3Bet), 0.6, 1.8);
+    }
+    share = clamp(share, 0.04, 0.95);
+    return { share, range: topOf(opts.actedPreflop ? r : r, share) };
   }
-  const out = new Float64Array(NUM_COMBOS);
   const t = boardTable(board);
-  const thr = clamp(0.4 + 1.1 * price, 0.5, 0.95);
-  // observed tendency: stations continue far wider, over-folders narrower
-  const sticky =
-    clamp((1 - m.foldToBet) / (1 - POPULATION.foldToBet), 0.5, 2.4) * clamp(m.wtsd / POPULATION.wtsd, 0.7, 1.8);
+  const sticky = clamp((1 - m.foldToBet) / (1 - POPULATION.foldToBet), 0.5, 2.4) * clamp(m.wtsd / POPULATION.wtsd, 0.7, 1.8);
+  let F = clamp(1 - 1.6 * price, 0.2, 0.9) * Math.sqrt(sticky);
+  if (opts.aggressor) F *= 1.35; // they bet or raised this street: they rarely give up to a raise
+  F = clamp(F, 0.1, 0.97);
+  // rank their combos by made strength plus draws, keep the top F of the weight
+  const order: number[] = [];
   let tot = 0;
-  let cont = 0;
-  for (let i = 0; i < NUM_COMBOS; i++) {
-    const w = r[i];
-    if (w <= 0) continue;
-    tot += w;
-    const s = t.strength[i];
-    const d = board.length < 5 ? t.draw[i] : 0;
-    let p = s >= thr ? 1 : d >= 1 && price < 0.36 ? 0.85 : d >= 0.5 && price < 0.25 ? 0.4 : s >= thr - 0.12 ? 0.3 : 0.04;
-    // sticky players call down with weak hands too (much more than the price suggests)
-    if (p < 1) p = Math.min(1, p * (p <= 0.04 ? sticky * sticky : sticky));
-    out[i] = w * p;
-    cont += w * p;
+  for (let i = 0; i < NUM_COMBOS; i++)
+    if (r[i] > 0 && t.strength[i] >= 0) {
+      order.push(i);
+      tot += r[i];
+    }
+  const score = (i: number) => t.strength[i] + (board.length < 5 ? 0.15 * t.draw[i] : 0);
+  order.sort((a, b) => score(b) - score(a));
+  const out = new Float64Array(NUM_COMBOS);
+  let acc = 0;
+  for (const i of order) {
+    if (acc >= F * tot) break;
+    out[i] = r[i];
+    acc += r[i];
   }
-  return { share: tot > 0 ? cont / tot : 0, range: out };
+  return { share: tot > 0 ? acc / tot : 0, range: out };
 }
 
 export function analyzeDecision(
@@ -212,6 +229,11 @@ export function analyzeDecision(
   const realize = (eq: number): number => {
     if (river || callEndsBetting) return 1;
     let r = street === 'preflop' ? (inPosition ? 0.88 : 0.72) : inPosition ? 0.95 : 0.85;
+    if (street === 'preflop' && !callEndsBetting) {
+      // weak starting hands win far less than their raw equity after the flop
+      const pctl = CLASS_PERCENTILE[CLASS_INDEX.get(className(view.hole[0], view.hole[1]))!];
+      r *= pctl < 0.1 ? 1.08 : pctl < 0.3 ? 1 : pctl < 0.5 ? 0.88 : 0.72;
+    }
     if (eq >= 0.7) r = 1; // strong hands win at least their share
     else if (heroDraw >= 1 && street !== 'preflop') {
       // draws earn extra when they hit, but only with chips left to win
@@ -227,10 +249,16 @@ export function analyzeDecision(
   if (la.canCheck) {
     // checking keeps a strong hand's value: opponents bet into it some of the time
     const pBet = clamp(0.35 * (vm.aggFreq / POPULATION.aggFreq), 0.1, 0.7);
-    const extra = equity > 0.5 ? pBet * 0.6 * potNow * (2 * equity - 1) : 0;
+    // ...but only if someone is still to act after you on this street
+    const closesAction = live.every((p) => view.actions.some((a) => a.street === street && a.pi === p.pi));
+    const extra = equity > 0.5 && !closesAction ? pBet * 0.6 * potNow * (2 * equity - 1) : 0;
     options.push({ kind: 'check', ev: equity * potNow * realize(equity) + extra, label: 'Check' });
   }
-  if (la.canCall) options.push({ kind: 'call', ev: equity * (potNow + callAmt) * realize(equity) - callAmt, label: `Call ${callAmt}` });
+  if (la.canCall) {
+    // strong hands that just call still win more money on later streets
+    const future = equity >= 0.7 && !river && !callEndsBetting ? (2 * equity - 1) * 0.5 * Math.min(effBehind, potNow + callAmt) * 0.5 : 0;
+    options.push({ kind: 'call', ev: equity * (potNow + callAmt) * realize(equity) - callAmt + future, label: `Call ${callAmt}` });
+  }
 
   // ---- bets / raises
   const sizes: { to: number; label: string }[] = [];
@@ -256,33 +284,64 @@ export function analyzeDecision(
       sizes.push({ to: heroAction.amount, label: heroAction.amount === la.maxTo ? 'all-in' : 'your size' });
   }
   const facingRaise = street !== 'preflop' && view.actions.some((a) => a.street === street && a.pi === view.me && (a.type === 'bet' || a.type === 'raise'));
+  const seenTo = new Set<number>();
   for (const s of sizes) {
+    if (seenTo.has(s.to)) continue;
+    seenTo.add(s.to);
     const add = s.to - me.streetBet;
     let allFold = 1;
     const contRanges: Range[] = [];
+    const shares: number[] = [];
     // preflop: players still to act may wake up too
-    const responders = street === 'preflop' ? [...opps, ...behind] : opps;
+    const responders = street === 'preflop' ? [...live.filter((p) => acted(p.pi)), ...behind] : opps;
     for (const p of responders) {
       const k = opps.indexOf(p);
       const base = k >= 0 ? ranges[k] : estimateRange(view, p.pi, mOf(p.id));
-      const c = continuing(base, view.board, add, potNow, mOf(p.id));
-      // someone who has already raised continues more often against a re-raise
-      const share = facingRaise ? Math.min(1, c.share * 1.4) : c.share;
-      allFold *= 1 - share;
+      const aggressor = view.actions.some((a) => a.street === street && a.pi === p.pi && (a.type === 'bet' || a.type === 'raise'));
+      const c = continuing(base, view.board, add, potNow, mOf(p.id), {
+        actedPreflop: street !== 'preflop' || acted(p.pi),
+        pos: positionOf(np, view.buttonPi, p.pi),
+        aggressor: aggressor || facingRaise,
+      });
+      allFold *= 1 - c.share;
       contRanges.push(c.range);
+      shares.push(c.share);
     }
-    const eqCalled = equityVsRanges(view.hole, view.board, contRanges.length ? contRanges.slice(0, 1) : ranges, 700, rng).equity;
-    const caller = opps[0] ?? behind[0] ?? villain;
-    const villainAdd = Math.max(0, Math.min(s.to, (caller?.streetBet ?? 0) + (caller?.stack ?? 0)) - (caller?.streetBet ?? 0));
+    // when called: equity against the likely caller(s) — multiway postflop, the most frequent caller preflop
+    let eqCalled: number;
+    let callers: typeof responders;
+    if (street === 'preflop') {
+      const k = shares.indexOf(Math.max(...shares));
+      eqCalled = equityVsRanges(view.hole, view.board, [contRanges[k]], 700, rng).equity;
+      callers = [responders[k]];
+    } else {
+      eqCalled = equityVsRanges(view.hole, view.board, contRanges, 700, rng).equity;
+      callers = responders;
+    }
+    const villainAdd = callers.reduce((sum, q) => sum + Math.max(0, Math.min(s.to, q.streetBet + q.stack) - q.streetBet), 0);
     const allIn = s.to === la.maxTo;
     const rCalled = allIn || river ? 1 : realize(eqCalled);
     const evCalled = eqCalled * (potNow + add + villainAdd) * rCalled - add;
-    const ev = allFold * potNow + (1 - allFold) * evCalled;
+    let ev = allFold * potNow + (1 - allFold) * evCalled;
+    // Preflop raises that are not all-in also get re-raised: part of each continuing range
+    // 3-bets (or 4-bets), and then only strong hands can continue — the rest lose the raise.
+    if (street === 'preflop' && !allIn) {
+      let pReraise = 0;
+      responders.forEach((p, k) => {
+        const share3 = positionOf(np, view.buttonPi, p.pi) === 'BB' ? 0.3 : 0.45;
+        pReraise += shares[k] * share3;
+      });
+      pReraise = Math.min(pReraise, 1 - allFold);
+      const pCall = 1 - allFold - pReraise;
+      const strong = CLASS_PERCENTILE[CLASS_INDEX.get(className(view.hole[0], view.hole[1]))!] < 0.06;
+      const vsReraise = strong ? evCalled * 1.3 : -add;
+      ev = allFold * potNow + pCall * evCalled + pReraise * vsReraise;
+    }
     options.push({
       kind: la.raiseType!,
       to: s.to,
       ev,
-      label: `${allIn ? 'All-in' : la.raiseType === 'bet' ? 'Bet' : 'Raise to'} ${s.to} (${s.label})`,
+      label: allIn ? `All-in (${s.to})` : `${la.raiseType === 'bet' ? 'Bet' : 'Raise to'} ${s.to} (${s.label})`,
       foldPct: allFold,
       eqWhenCalled: eqCalled,
     });

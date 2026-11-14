@@ -84,6 +84,7 @@ export function boardTable(board: readonly Card[]): BoardTable {
   }
   if (board.length < 5)
     for (const i of live) draw[i] = drawScore(COMBO_CARDS[i], board);
+  const boardCat = evaluate(board) >> 20;
   // percentile of made-hand value among live combos
   const sorted = live.map((i) => value[i]).sort((x, y) => x - y);
   const strength = new Float32Array(NUM_COMBOS).fill(-1);
@@ -105,6 +106,9 @@ export function boardTable(board: readonly Card[]): BoardTable {
       else hi = m;
     }
     strength[i] = (first + lo) / 2 / sorted.length;
+    // no hand of its own (high card, or only the pair/trips already on the board): it is air,
+    // however many even weaker combos there are
+    if ((v >> 20) <= boardCat) strength[i] = Math.min(strength[i], 0.3);
   }
   const t: BoardTable = { key, strength, draw, value };
   if (cache.size > 64) cache.clear();

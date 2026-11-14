@@ -162,7 +162,9 @@ export function App() {
       const type = t && t.tagName === 'INPUT' ? (t as HTMLInputElement).type : '';
       if (type === 'number' || type === 'text' || (t && t.tagName === 'TEXTAREA')) return;
       if (document.querySelector('.modal')) return;
-      if (e.key === ' ' && screen === 'table' && t && (t.tagName === 'BUTTON' || type === 'checkbox' || type === 'range')) return;
+      const inTopBar = !!t?.closest?.('.topbar');
+      if (e.key === ' ' && screen === 'table' && t && !inTopBar && (t.tagName === 'BUTTON' || type === 'checkbox' || type === 'range')) return;
+      if (e.key === ' ' && inTopBar) (t as HTMLElement).blur();
       if (e.key === ' ' && screen === 'table') {
         e.preventDefault();
         ctrl.skip();
@@ -258,10 +260,15 @@ export function App() {
   const net = userSeat ? userSeat.stack - userSeat.buyIns : 0;
   const heroDisplay = d && snap.userPi >= 0 ? d.seats[snap.userPi] : null;
   const thinkingName = snap.thinkingPi >= 0 && h ? h.players[snap.thinkingPi].name : null;
+  const lastHand =
+    snap.phase === 'handOver' &&
+    !!snap.match &&
+    (snap.match.handsPlayed >= snap.handsTotal || (snap.match.seats[0].stack <= 0 && !snap.match.seats[0].autoRebuy));
   let waiting = '';
   const nextActor = h && !h.finished && h.toAct >= 0 && h.toAct !== snap.userPi ? h.players[h.toAct].name : null;
   if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
   else if (nextActor) waiting = `${nextActor} to act`;
+  else if (snap.phase === 'handOver' && lastHand) waiting = 'Match finished — press Space to see your report';
   else if (snap.phase === 'handOver') waiting = prefs.pauseAfterHand ? 'Hand over — press Space or “Next hand” to continue' : 'Hand over — next hand coming up';
   if (heroDisplay?.folded && snap.phase === 'playing') waiting = `You folded — watching the rest of the hand${thinkingName ? ` · ${thinkingName} is thinking…` : ''}`;
   const preActs = h ? h.actions.filter((a) => a.street === 'preflop') : [];
@@ -269,10 +276,6 @@ export function App() {
   const firstRaise = preActs.findIndex((a) => a.type === 'raise' || a.type === 'bet');
   const limpers = preActs.filter((a, i) => a.type === 'call' && (firstRaise < 0 || i < firstRaise)).length;
   const totals = h ? h.players.map((p) => p.totalBet) : [];
-  const lastHand =
-    snap.phase === 'handOver' &&
-    !!snap.match &&
-    (snap.match.handsPlayed >= snap.handsTotal || (snap.match.seats[0].stack <= 0 && !snap.match.seats[0].autoRebuy));
 
   return (
     <MotionConfig reducedMotion="user">

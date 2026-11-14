@@ -20,8 +20,9 @@ import {
 import { CLASS_INDEX, COMBO_CLASS } from './combos';
 import { estimateRange, openerGroup } from './rangeModel';
 import { equityVsRanges } from './equity';
+import { callingRange } from './shoveModel';
 import { boardTable, texture } from './strength';
-import { POPULATION, populationFor, type OpponentModel } from './stats';
+import { POPULATION, populationFor, toModel, type OpponentModel } from './stats';
 import type { Personality } from './personalities';
 import type { BotDecision } from './types';
 
@@ -73,7 +74,7 @@ function raiseTo(c: Ctx, to: number): Action {
 
 function model(c: Ctx, pi: number): OpponentModel {
   if (!c.p.adapts) return POPULATION;
-  return c.models[c.v.players[pi].id] ?? POPULATION;
+  return c.models[c.v.players[pi].id] ?? toModel(undefined, c.v.players.length);
 }
 
 /** weight (0..1) of our hand in a range */
@@ -154,11 +155,20 @@ function preflop(c: Ctx): BotDecision {
       const pushPct = clamp(base[pos] * Math.pow(10 / Math.max(effBB, 2), 0.75) * Math.sqrt(p.rfiMult), 0.05, 0.95);
       if (pct <= pushPct * (p.balanced ? 0.6 : 1)) return { action: raiseTo(c, c.la.maxTo), reason: `short stack (${effBB.toFixed(0)} BB): shove top ${(pushPct * 100).toFixed(0)}%` };
       if (p.balanced && pct <= Math.min(0.95, pushPct * 1.6)) {
-        const d = openShove(c);
+        const d = openShove(c, pushPct);
         if (d) return d;
       }
       if (p.limpLoose > 0 && c.rng() < p.limpLoose && pct < 0.6) return { action: checkOrCall(c), reason: 'station limp' };
       return { action: c.la.canCheck ? { type: 'check' } : fold(c), reason: 'short stack: fold' };
+    }
+    if (p.balanced && raises === 0 && limpers > 0) {
+      // limped pot: isolation-shove for fold equity, otherwise check the option or fold
+      const isoShare = clamp(0.3 * Math.pow(10 / Math.max(effBB, 2), 0.7) * (hu ? 1.4 : 1), 0.1, 0.7);
+      if (pct <= isoShare * 1.6) {
+        const d = openShove(c, isoShare);
+        if (d) return d;
+      }
+      return { action: c.la.canCheck ? { type: 'check' } : fold(c), reason: 'short stack: no profitable shove over the limp' };
     }
     const opener = lastRaiser >= 0 ? v.players[lastRaiser] : null;
     if (p.balanced && opener && !opener.allIn && raises <= 2 && callersAfterRaise === 0 && limpers === 0 && c.voluntary.length === 1 && c.la.raiseType) {
@@ -211,7 +221,7 @@ function preflop(c: Ctx): BotDecision {
   }
 
   // ---------- facing an all-in (or a raise we cannot re-raise): pure price decision
-  if (raises >= 1 && !iRaised && (!c.la.raiseType || (lastRaiser >= 0 && v.players[lastRaiser].allIn))) {
+  if (raises >= 1 && (!c.la.raiseType || (lastRaiser >= 0 && lastRaiser !== c.me && v.players[lastRaiser].allIn))) {
     return equityDecision(c, 'facing an all-in', false);
   }
 
@@ -319,55 +329,46 @@ function preflopDefend(c: Ctx, realize: number, why: string): BotDecision | null
 }
 
 /**
- * Expected value of moving all-in now versus the raiser, assuming they call with the
- * top ~third of their (estimated) range and fold the rest. Returns a shove when it beats
- * both folding (0) and calling (equity × realisation).
+ * Re-shove over a raise: the raiser (and anyone still to act) calls with the hands that have
+ * the equity to call our re-shove range at the price they get. Shove when that beats both
+ * folding and flat-calling.
  */
 function resteal(c: Ctx, villain: number): BotDecision | null {
   const v = c.v;
-  const r = estimateRange(v, villain, model(c, villain));
-  // villain's calling range: the best part of their range
-  const pre = new Float64Array(r.length);
-  const order: number[] = [];
-  let total = 0;
-  for (let i = 0; i < r.length; i++) if (r[i] > 0) {
-    order.push(i);
-    total += r[i];
-  }
-  order.sort((a, b) => CLASS_PERCENTILE[COMBO_CLASS[a]] - CLASS_PERCENTILE[COMBO_CLASS[b]]);
+  const np = v.players.length;
   const me = v.players[c.me];
   const vp = v.players[villain];
   const myTotal = me.stack + me.streetBet;
   const villainTotal = vp.stack + vp.streetBet;
   const risk = Math.min(myTotal, villainTotal);
-  // the more of their stack they must risk, the tighter they call
-  // the cheaper the call is for them (price they get), the wider they call
+  const effBB = c.effStack / c.bb;
+  // how wide our re-shoves are (roughly): what the raiser calls against
+  const shoveShare = clamp(0.18 * Math.pow(20 / Math.max(effBB, 4), 0.9) * (np === 2 ? 1.6 : 1), 0.08, 0.6);
+  const r = estimateRange(v, villain, model(c, villain));
   const theirNeed = (risk - vp.streetBet) / Math.max(1, c.pot - me.streetBet - vp.streetBet + 2 * risk);
-  let callShare = clamp(0.1 + 1.6 * (0.6 - theirNeed), 0.15, 0.85);
-  // with a read, players who rarely fold to re-raises (stations) call much wider
   const vm = model(c, villain);
-  if (vm.hands >= 15) callShare = Math.max(callShare, (1 - vm.foldTo3Bet) * 0.9);
-  // loose-passive players (many calls, few raises) call shoves wide even before a 3-bet read
-  if (vm.hands >= 6 && vm.vpip - vm.pfr > 0.15) callShare = Math.max(callShare, 0.75);
-  let acc = 0;
-  for (const i of order) {
-    if (acc >= callShare * total) break;
-    pre[i] = r[i];
-    acc += r[i];
+  const looseness = clamp(vm.vpip / populationFor(np).vpip, 0.7, 2);
+  const caller = callingRange(r, shoveShare, theirNeed, looseness);
+  // players still to act wake up with a calling hand now and then
+  let behindFold = 1;
+  for (const pi of c.behind) {
+    const q = v.players[pi];
+    const qRisk = Math.min(myTotal, q.stack + q.streetBet);
+    const qNeed = (qRisk - q.streetBet) / Math.max(1, c.pot + 2 * qRisk);
+    behindFold *= 1 - callingRange(new Float64Array(r.length).fill(1), shoveShare, qNeed, clamp(model(c, pi).vpip / populationFor(np).vpip, 0.7, 2)).share;
   }
-  // everyone still to act must fold too (each wakes up with a calling hand ~8-12% of the time)
-  const f = (1 - acc / Math.max(1e-9, total)) * Math.pow(0.9, c.behind.length);
-  const eqCalled = equityVsRanges(v.hole, v.board, [pre], 500, c.rng).equity;
-  const dead = c.pot - me.streetBet - vp.streetBet; // blinds and other chips already in
+  const f = (1 - caller.share) * behindFold;
+  if (caller.share <= 0) return { action: raiseTo(c, c.la.maxTo), reason: 're-shove: their range cannot call' };
+  const eqCalled = equityVsRanges(v.hole, v.board, [caller.range], 500, c.rng).equity;
+  const dead = c.pot - me.streetBet - vp.streetBet;
   const potIfCalled = dead + 2 * risk;
-  const evShove = f * c.pot + (1 - f) * (eqCalled * potIfCalled - (risk - me.streetBet)) - 0;
+  const evShove = f * c.pot + (1 - f) * (eqCalled * potIfCalled - (risk - me.streetBet));
   // compare with calling (rough: equity vs their whole range, realised out of position)
   const eqAll = equityVsRanges(v.hole, v.board, [r], 400, c.rng).equity;
-  // flat calls realise little equity out of position with short stacks
-  const ipVs = hasPositionOn(v.players.length, v.buttonPi, c.me, villain);
-  const realizeCall = ipVs ? 0.85 : c.effStack / c.bb <= 25 ? 0.65 : 0.78;
+  const ipVs = hasPositionOn(np, v.buttonPi, c.me, villain);
+  const realizeCall = ipVs ? 0.85 : effBB <= 25 ? 0.65 : 0.78;
   const evCall = c.la.canCall ? eqAll * realizeCall * (c.pot + c.toCall) - c.toCall : 0;
-  if (evShove > Math.max(0, evCall) + 0.4 * c.bb)
+  if (evShove > Math.max(0, evCall) + 0.3 * c.bb)
     return {
       action: raiseTo(c, c.la.maxTo),
       reason: `re-shove: they fold about ${Math.round(f * 100)}%, ${Math.round(eqCalled * 100)}% equity when called → EV ${(evShove / c.bb).toFixed(1)} BB`,
@@ -376,31 +377,31 @@ function resteal(c: Ctx, villain: number): BotDecision | null {
 }
 
 /**
- * Open-shove decision from expected value: everyone still to act calls with the top part of
- * their range, sized by the price they get and how loose they are; otherwise we win the blinds.
+ * Open-shove (or isolation-shove over limpers) from expected value: every live opponent calls
+ * with the hands that beat the price against our shoving range; otherwise we win the pot.
  */
-function openShove(c: Ctx): BotDecision | null {
+function openShove(c: Ctx, shoveShare: number): BotDecision | null {
   const v = c.v;
+  const np = v.players.length;
   const me = v.players[c.me];
-  const pop = populationFor(v.players.length);
+  const myTotal = me.stack + me.streetBet;
+  const pop = populationFor(np);
   let pNoCall = 1;
-  let callShare = 0.3;
-  for (const pi of c.behind) {
+  let best: { share: number; range: Range } | null = null;
+  const responders = [...c.voluntary, ...c.behind];
+  if (!responders.length) return null;
+  for (const pi of responders) {
     const q = v.players[pi];
-    const risk = Math.min(me.stack + me.streetBet, q.stack + q.streetBet);
+    const risk = Math.min(myTotal, q.stack + q.streetBet);
     const need = (risk - q.streetBet) / Math.max(1, c.pot + 2 * risk - me.streetBet - q.streetBet);
     const m = model(c, pi);
-    const loose = clamp(m.vpip / pop.vpip, 0.8, 1.7);
-    const share = clamp((0.1 + 1.6 * (0.6 - need)) * loose, 0.08, 0.9);
-    pNoCall *= 1 - share;
-    callShare = Math.max(callShare, share);
+    const r = c.voluntary.includes(pi) ? estimateRange(v, pi, m) : new Float64Array(1326).fill(1);
+    const res = callingRange(r, shoveShare, need, clamp(m.vpip / pop.vpip, 0.7, 2));
+    pNoCall *= 1 - res.share;
+    if (!best || res.share > best.share) best = res;
   }
-  if (!c.behind.length) return null;
-  const top = new Float64Array(1326);
-  // the caller's range: the best callShare of all hands
-  const order = [...Array(1326).keys()].sort((a, b) => CLASS_PERCENTILE[COMBO_CLASS[a]] - CLASS_PERCENTILE[COMBO_CLASS[b]]);
-  for (let k = 0; k < Math.round(callShare * 1326); k++) top[order[k]] = 1;
-  const eqCalled = equityVsRanges(v.hole, v.board, [top], 500, c.rng).equity;
+  if (!best || best.share <= 0) return { action: raiseTo(c, c.la.maxTo), reason: 'shove: nobody can call' };
+  const eqCalled = equityVsRanges(v.hole, v.board, [best.range], 500, c.rng).equity;
   const risk = me.stack;
   const ev = pNoCall * c.pot + (1 - pNoCall) * (eqCalled * (c.pot + 2 * risk - me.streetBet) - risk);
   if (ev > 0.1 * c.bb)

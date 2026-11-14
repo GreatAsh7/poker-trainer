@@ -111,7 +111,7 @@ export function SettingsModal({ prefs, onChange, onClose }: Props) {
         <Row label="Opponent HUD" hint="Each bot's style, VPIP and PFR under their name (H).">
           <Toggle label="Opponent HUD" checked={prefs.showHud} onChange={(v) => set({ showHud: v })} />
         </Row>
-        <Row label="Sound effects" hint="Off by default.">
+        <Row label="Sound effects" hint="Cards, chips, your turn and wins. Quiet table cues, no music.">
           <div className="setting__sound">
             <Toggle
               label="Sound effects"
@@ -136,6 +136,7 @@ export function SettingsModal({ prefs, onChange, onClose }: Props) {
                 setSound(prefs.sound, vol);
               }}
               onPointerUp={() => play('chip')}
+              onKeyUp={() => play('chip')}
             />
           </div>
         </Row>

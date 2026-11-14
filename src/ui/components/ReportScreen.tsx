@@ -43,8 +43,8 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
     <div className="report" data-testid="report">
       <div className="report__inner">
         <header className="rcard report__hero">
-          <div className={`grade grade--${r.grade}`} aria-label={`Grade ${r.grade}`}>
-            {r.grade}
+          <div className={`grade grade--${r.grade === '–' ? 'none' : r.grade}`} aria-label={r.grade === '–' ? 'No grade' : `Grade ${r.grade}`}>
+            {r.grade === '–' ? 'No grade' : r.grade}
           </div>
           <div className="report__headline">
             <p className="report__kicker">Match report · {new Date(r.date).toLocaleString()}</p>
@@ -90,10 +90,12 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
               onClick={() => setTab(k)}
               onKeyDown={(e) => {
                 const keys = ['report', 'hands', 'progress'] as const;
-                const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-                if (!d) return;
+                const i0 = keys.indexOf(k);
+                const j =
+                  e.key === 'ArrowRight' ? (i0 + 1) % keys.length : e.key === 'ArrowLeft' ? (i0 + keys.length - 1) % keys.length : e.key === 'Home' ? 0 : e.key === 'End' ? keys.length - 1 : -1;
+                if (j < 0) return;
                 e.preventDefault();
-                const n = keys[(keys.indexOf(k) + d + keys.length) % keys.length];
+                const n = keys[j];
                 setTab(n);
                 document.getElementById(`tab-${n}`)?.focus();
               }}
@@ -125,12 +127,13 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
                   </div>
                   <div>
                     <dt>Win rate</dt>
-                    <dd>{signed(r.bb100)} BB per 100 hands</dd>
+                    <dd>{r.hands >= 15 ? `${signed(r.bb100)} BB per 100 hands` : 'too few hands to measure'}</dd>
                   </div>
                   <div>
                     <dt>Costly decisions</dt>
                     <dd>
-                      {r.mistakesCount} (≈ {r.evLossBB100.toFixed(1)} BB per 100 hands)
+                      {r.mistakesCount}{' '}
+                      {r.hands >= 15 ? `(≈ ${r.evLossBB100.toFixed(1)} BB per 100 hands)` : `(≈ ${((r.evLossBB100 * r.hands) / 100).toFixed(1)} BB in total)`}
                     </dd>
                   </div>
                   {r.allIn.count > 0 && (
@@ -387,7 +390,7 @@ export function DecisionList({ notes, bigBlind = 2 }: { notes: DecisionNote[]; b
             ) : null}
           </div>
           {d.text && <p className="decision__text">{d.text}</p>}
-          {!d.text && d.bestLabel && d.heroLabel.split(' ')[0] !== d.bestLabel.split(' ')[0].toLowerCase() && d.street !== 'preflop' && (
+          {!d.text && d.bestLabel && d.evLoss / bigBlind < 1.5 && d.heroLabel.split(' ')[0] !== d.bestLabel.split(' ')[0].toLowerCase() && d.street !== 'preflop' && (
             <p className="decision__text muted">Close decision: {d.bestLabel.toLowerCase()} rated slightly higher, but the difference was small.</p>
           )}
         </li>
@@ -416,13 +419,22 @@ function Progress({ history, current }: { history: MatchReport[]; current: strin
       <h2>Progress</h2>
       <p className="muted">Costly decisions per 100 hands (lower is better), with each match's grade and length, for your last {pts.length} matches.</p>
       <svg className="progress" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Costly decisions per 100 hands over recent matches">
-        <text x="4" y="14" className="progress__axis">BB lost / 100</text>
+        <text x={W - 4} y="12" textAnchor="end" className="progress__axis">BB lost per 100 hands</text>
         <text x="4" y={y(0) + 4} className="progress__axis">0</text>
-        <text x="4" y={y(maxL) + 4} className="progress__axis">{maxL.toFixed(0)}</text>
+        <text x="4" y={y(maxL) + 14} className="progress__axis">{maxL.toFixed(0)}</text>
         <polyline fill="none" stroke="var(--gold)" strokeWidth="2.5" points={loss.map((v, i) => `${x(i)},${y(v)}`).join(' ')} />
         {pts.map((p, i) => (
           <g key={p.id}>
-            <circle cx={x(i)} cy={y(loss[i])} r={p.id === current ? 6 : 4} fill={p.id === current ? 'var(--gold-2)' : 'var(--gold)'} />
+            <circle
+              cx={x(i)}
+              cy={y(loss[i])}
+              r={p.id === current ? 6 : 4}
+              fill={p.hands < 15 ? 'var(--panel)' : p.id === current ? 'var(--gold-2)' : 'var(--gold)'}
+              stroke="var(--gold)"
+              strokeWidth={2}
+            >
+              <title>{p.hands < 15 ? 'Short match: less reliable' : `${p.hands} hands`}</title>
+            </circle>
             <text x={x(i)} y={H - 8} textAnchor="middle" className="progress__grade">
               {p.grade} · {p.hands}h
             </text>
@@ -448,7 +460,7 @@ function Progress({ history, current }: { history: MatchReport[]; current: strin
               <td>{new Date(p.date).toLocaleDateString()}</td>
               <td>{p.hands}</td>
               <td className={p.net > 0 ? 'pos' : p.net < 0 ? 'neg' : ''}>{signed(p.netBB)} BB</td>
-              <td>{signed(p.bb100)}</td>
+              <td>{p.hands >= 15 ? signed(p.bb100) : '—'}</td>
               <td>{p.grade}</td>
             </tr>
           ))}
