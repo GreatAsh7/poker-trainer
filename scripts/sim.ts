@@ -185,7 +185,9 @@ async function main() {
   const skipRing = !!only && !only.includes('mixed');
   const pairsPer = Math.ceil(hands / 2 / chunks);
   const huJobs = rows.map(async (r, ri) => {
-    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('hu', r.opp, pairsPer, 7919 * (ri + 1) + c, r.stack, reset)))) as number[][];
+    // push/fold (10 BB) edges are small: those rows get 4x the hands
+    const pairs = r.stack <= 10 ? pairsPer * 4 : pairsPer;
+    const parts = (await Promise.all(Array.from({ length: chunks }, (_, c) => run('hu', r.opp, pairs, 7919 * (ri + 1) + c, r.stack, reset)))) as number[][];
     return { ...r, res: ci(parts.flat(), 2) };
   });
   // 6-max: one Expert vs five copies of each personality (the Expert's own result is its edge)

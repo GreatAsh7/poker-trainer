@@ -118,23 +118,23 @@ Built (all pure TS in `src/bots/`, run in the Web Worker):
 
 Measured with `npm run sim -- --hands 60000 --chunks 5` (opponent reads reset every 50 hands,
 like a new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max
-row, 300,000 at 200 BB; any illegal action aborts the run). Expert bb/100 with 95% CI — all 43
+row, 300,000 at 200 BB, 240,000 at 10 BB heads-up; any illegal action aborts the run). Expert bb/100 with 95% CI — all 43
 rows are significant wins:
 
 | Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB | 12 / 10 BB |
 |---|---|---|---|---|---|---|
-| Heads-up | Solid (TAG) | | +10.0 ± 5.0 | +16.1 ± 3.8 | +37.3 ± 2.4 | +19.4 ± 2.4 |
-| Heads-up | Aggressive (LAG) | | +34.0 ± 10.0 | +15.9 ± 6.3 | +20.6 ± 3.6 | +2.6 ± 2.1 |
-| Heads-up | Tight-passive (nit) | | +21.9 ± 4.2 | +25.7 ± 3.5 | +42.1 ± 2.7 | +20.7 ± 2.2 |
-| Heads-up | Calling station | | +97.9 ± 6.9 | +87.4 ± 6.9 | +72.0 ± 4.8 | +29.5 ± 3.5 |
-| Heads-up | Exploit: 3-bets every open | | +55.1 ± 8.9 | | +249.3 ± 3.7 | |
-| Heads-up | Exploit: shoves every hand | | +601.5 ± 38.8 | +198.5 ± 15.8 | +71.9 ± 7.6 | +38.3 ± 3.9 |
-| Heads-up | Random legal / always call / maniac | | +379.4 / +440.2 / +732.5 | | | |
-| 6-max, Expert vs 5 × | Solid (TAG) | +15.5 ± 3.4 | +13.4 ± 3.9 | +5.5 ± 2.7 | +10.9 ± 1.9 | +3.6 ± 1.1 |
-| 6-max, Expert vs 5 × | Aggressive (LAG) | | +30.9 ± 6.2 | +10.6 ± 3.7 | +5.7 ± 2.4 | +4.0 ± 1.6 |
-| 6-max, Expert vs 5 × | Tight-passive (nit) | +5.1 ± 3.0 | +6.8 ± 3.7 | +9.4 ± 2.8 | +14.3 ± 2.1 | +4.8 ± 1.1 |
-| 6-max, Expert vs 5 × | Calling station | | +145.2 ± 9.2 | +113.5 ± 5.8 | +70.4 ± 3.7 | |
-| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +106.3 ± 9.5 | |
+| Heads-up | Solid (TAG) | | +13.6 ± 4.7 | +53.9 ± 3.6 | +41.1 ± 2.4 | +5.8 ± 2.4 |
+| Heads-up | Aggressive (LAG) | | +15.2 ± 9.2 | +59.1 ± 6.7 | +39.1 ± 3.8 | +3.4 ± 1.1 (250k hands) |
+| Heads-up | Tight-passive (nit) | | +28.5 ± 4.0 | +40.5 ± 3.4 | +43.5 ± 2.5 | +9.9 ± 2.0 |
+| Heads-up | Calling station | | +96.5 ± 6.4 | +86.6 ± 6.4 | +71.0 ± 4.4 | +29.6 ± 3.2 |
+| Heads-up | Exploit: 3-bets every open | | +70.1 ± 8.4 | | +155.7 ± 5.0 | |
+| Heads-up | Exploit: shoves every hand | | +558.2 ± 38.6 | +202.4 ± 15.7 | +77.3 ± 7.5 | +38.5 ± 3.9 |
+| Heads-up | Random legal / always call / maniac | | +349.3 / +437.5 / +747.7 | | | |
+| 6-max, Expert vs 5 × | Solid (TAG) | +13.1 ± 3.2 | +8.4 ± 3.8 | +15.7 ± 2.6 | +13.4 ± 1.8 | +4.7 ± 1.2 |
+| 6-max, Expert vs 5 × | Aggressive (LAG) | | +24.8 ± 6.0 | +12.7 ± 3.8 | +5.0 ± 2.4 | +4.0 ± 1.6 |
+| 6-max, Expert vs 5 × | Tight-passive (nit) | +13.2 ± 2.6 | +14.7 ± 3.3 | +16.7 ± 2.7 | +18.5 ± 2.0 | +6.4 ± 1.1 |
+| 6-max, Expert vs 5 × | Calling station | | +144.3 ± 8.8 | +109.3 ± 5.6 | +66.7 ± 3.6 | |
+| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +122.1 ± 9.7 | |
 
 (12 / 10 BB column: 6-max rows are 12 BB, heads-up rows 10 BB.)
 
@@ -237,3 +237,38 @@ Built (pure TS in `src/analysis/`, run in the Web Worker):
   on the last hand, Back/Change-settings buttons on an old report, report tabs with arrow keys and
   tabpanels, Space presses a focused button in the replay, small-sample flags in the position
   table, progress chart axis + hand counts, "the hand in progress won't count" when leaving.
+
+### Critic round 2 (Milestone 4) and round 4 (Milestone 3)
+- strategy-critic M3 round 4: **Not ready (1 blocker, 2 majors)** → fixed: any all-in raise (also
+  a short 3-bet jam over the Expert's open) is decided on price vs the shover's range; shove and
+  re-shove fold equity now comes from `src/bots/shoveModel.ts`: each opponent calls with the
+  hands whose equity vs our (realistically sized) shoving range beats their price (cached
+  per-class equity table) — re-shove ranges went from 86% to ~22% at 12 BB, 95% of them +EV even
+  vs an opener who always calls; ≤ 13 BB limped pots iso-shove or check/fold (no over-limping);
+  seats without reads use table-size priors from hand 1.
+- strategy-critic M4 round 2: **Not ready (3 blockers, 4 majors)** → fixed: open/iso fold equity
+  by position (BB defends ~38%, SB ~16%, others ~10% at 2.5x) with 3-bets that make weak opens
+  fold and lose the raise, strength-dependent preflop realisation (every BTN/SB/CO chart open now
+  rates ≥ 0); postflop continuing ranges are the top share of the player's own range (≈ minimum
+  defence, wider for players who bet), adjusted by observed fold-to-bet/WTSD; range model: air
+  (no hand of its own) is capped as air, a check that opens the street carries no information,
+  river (check-)raises are value-heavy (population river check-raise now ≈ 88% two pair+);
+  checking gets no "they bet into you" credit when you close the action; any −EV call is
+  flagged; strong-hand calls count later-street value; multiway raises use equity vs all
+  callers and their chips; wording minors (under the gun, "go all-in", no duplicate labels,
+  turn follow-up bets, paired-board range mix, situation line only up to the decision).
+- ui-critic M4 round 2: **Not ready (0 blockers, 2 majors)** → fixed: Space on a top-bar button
+  that kept focus after a dialog now means skip/next hand; no per-100 figures below 15 hands
+  (summary, results card, progress table). Minors: last-hand status copy, "No grade" badge,
+  chart labels and hollow dots for short matches, Home/End on report tabs, replay notes stay
+  beside the table down to ~1000 px, settings copy, keyboard volume sample.
+
+## Milestone 5 — Polish
+- Settings dialog (src/ui/components/SettingsModal.tsx, src/ui/settings.ts): bot thinking time,
+  animation speed, pause after each hand, optional decision timer (ring + "N s left", pauses with
+  dialogs, auto check/fold on expiry), pot-odds helper, HUD, sound + volume — saved per browser.
+- Sounds (src/ui/sound.ts): small Web Audio cues (deal, chip, check, fold, your turn, win), off by
+  default, created lazily.
+- Performance (scripts/perf.mjs, 90 s of play at 1600×900): frame time median 6.1 ms, p99 11.7
+  ms, 1 frame over 34 ms, 0 long tasks, +5 MB heap. All bot thinking, reports and reviews run in
+  the worker (report builds take ~0.4–1 s off the main thread).
