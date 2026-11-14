@@ -169,20 +169,20 @@ Stack  Opponents                              Expert bb/100 (95% CI)    Result
  12 BB  5 × Aggressive (LAG)                  NaN ± NaN                 NOT significant
  12 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
 
-Illegal bot actions: none (any illegal action aborts the run) at commit 59bfdf6 (opponent reads reset every
+Illegal bot actions: none (any illegal action aborts the run) at commit ac68d0d (opponent reads reset every
 50 hands, like a new match in the app; duplicate format; 120,000 hands per heads-up row, 240,000 per
 6-max row, 600,000 at 200 BB, 480,000 at 10 BB heads-up; any illegal action aborts the run). Expert
 bb/100 with 95% CI — all 43 rows are significant wins:
 
 | Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB | 12 / 10 BB |
 |---|---|---|---|---|---|---|
-| Heads-up | Solid (TAG) | | +13.7 ± 3.3 | +11.6 ± 2.3 | +25.5 ± 1.5 | +5.9 ± 0.9 |
-| Heads-up | Aggressive (LAG) | | +20.5 ± 6.5 | +4.4 ± 4.0 | +9.0 ± 2.4 | +3.1 ± 0.8 |
-| Heads-up | Tight-passive (nit) | | +24.2 ± 2.8 | +30.2 ± 2.2 | +34.8 ± 1.6 | +7.5 ± 0.7 |
-| Heads-up | Calling station | | +91.8 ± 4.5 | +88.0 ± 4.3 | +65.7 ± 2.9 | +28.7 ± 1.1 |
-| Heads-up | Exploit: 3-bets every open | | +63.5 ± 5.9 | | +84.2 ± 3.3 | |
-| Heads-up | Exploit: shoves every hand | | +570.2 ± 27.3 | +197.3 ± 11.1 | +73.9 ± 5.3 | +38.4 ± 1.4 |
-| Heads-up | Random legal / always call / maniac | | +360.3 / +436.5 / +730.7 | | | |
+| Heads-up | Solid (TAG) | | +10.1 ± 3.2 | +13.2 ± 2.3 | +25.5 ± 1.5 | +5.9 ± 0.9 |
+| Heads-up | Aggressive (LAG) | | +12.8 ± 6.7 | +6.7 ± 4.1 | +9.0 ± 2.4 | +3.1 ± 0.8 |
+| Heads-up | Tight-passive (nit) | | +24.6 ± 2.8 | +28.9 ± 2.1 | +34.8 ± 1.6 | +7.5 ± 0.7 |
+| Heads-up | Calling station | | +96.0 ± 4.6 | +89.6 ± 4.3 | +65.7 ± 2.9 | +28.7 ± 1.1 |
+| Heads-up | Exploit: 3-bets every open | | +64.8 ± 6.0 | | +85.7 ± 3.3 | |
+| Heads-up | Exploit: shoves every hand | | +617.1 ± 27.3 | +209.2 ± 11.1 | +73.9 ± 5.3 | +38.4 ± 1.4 |
+| Heads-up | Random legal / always call / maniac | | +376.5 / +436.5 / +763.8 | | | |
 | 6-max, Expert vs 5 × | Solid (TAG) | +10.6 ± 2.1 | +8.8 ± 2.4 | +7.2 ± 1.5 | +8.0 ± 1.1 | +3.4 ± 0.8 |
 | 6-max, Expert vs 5 × | Aggressive (LAG) | | +26.4 ± 4.0 | +6.0 ± 2.2 | +4.8 ± 1.5 | +2.9 ± 1.1 |
 | 6-max, Expert vs 5 × | Tight-passive (nit) | +12.5 ± 1.7 | +12.5 ± 2.2 | +14.0 ± 1.7 | +12.2 ± 1.3 | +5.3 ± 0.8 |
@@ -336,6 +336,21 @@ Built (pure TS in `src/analysis/`, run in the Web Worker):
   and 72o-type button opens are flagged. Minors: paired-board mixes/hand names, bad-bluff only
   below fair share, no filler "good folds", larger samples for exploit tips, short-stack
   preflop spots flagged from 0.4 BB. 116 tests.
+
+### Final round (Milestone 5)
+- strategy-critic final review: **Not ready (1 blocker, 1 major)** → fixed: players who have not
+  acted continue only ~6% vs a 3-bet / ~3% vs a 4-bet (cold 4-bets with KQs no longer
+  recommended), preflop EV weighted over every possible caller, "premium" re-raise rule by
+  raise level, light 4-bets not used as the yardstick, heads-up 3-bet range scaled to the
+  observed rate, heads-up in-position realisation; double-paired boards named correctly.
+  Re-review: **Ready (0 blockers, 0 majors)**. Open minors: the Expert flats a bit wide vs UTG
+  opens; HU 40 BB vs LAG is the thinnest edge (+6.7 ± 4.1); an internal toCall field on opens.
+- ui-critic final review: **Not ready (0 blockers, 3 majors)** → fixed: Enter on a focused preset
+  applies it (never submits a stale amount); Space after the hand log / a closing dialog deals
+  the next hand; the log opens by default only at ≥ 1280 px. Minors fixed: time's-up message,
+  plain "Raise" when disabled, setup copy for small tables, "You ran out of chips", lazy
+  AudioContext, total cost in the results row, stable report scrollbar. The e2e test was
+  updated for the renamed "Change settings" button.
 
 ## Milestone 5 — Polish
 - Settings dialog (src/ui/components/SettingsModal.tsx, src/ui/settings.ts): bot thinking time,
