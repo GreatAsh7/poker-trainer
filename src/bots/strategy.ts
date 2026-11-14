@@ -589,7 +589,11 @@ function postflop(c: Ctx): BotDecision {
   if (street !== 'river' && !callIsAllIn) {
     realize = ipAll ? 0.92 : 0.8;
     if (myDraw >= 1) realize = Math.min(1, realize + 0.1);
-    else if (myStrength < 0.5) realize -= ipAll ? 0.06 : p.balanced ? 0.25 : 0.15;
+    else if (myStrength < 0.5) {
+      // against players who bet far more than usual, their bets are often bluffs: weak hands keep more of their equity
+      const aggro = p.adapts ? clamp((vm.aggFreq - POPULATION.aggFreq) / 0.2, 0, 1) : 0;
+      realize -= ipAll ? 0.06 : p.balanced ? 0.25 - 0.12 * aggro : 0.15;
+    }
   }
   const effEq = eq * realize + implied;
   if (effEq >= potOdds + margin || myStrength >= 0.995)
