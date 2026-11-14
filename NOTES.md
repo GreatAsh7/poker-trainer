@@ -116,25 +116,81 @@ Built (all pure TS in `src/bots/`, run in the Web Worker):
 - App: setup screen "Opponents" (Mixed / Expert table / Softer table); the controller sends
   every bot the public stats of all players so they adapt over the match.
 
-Measured with `npm run sim -- --hands 60000 --chunks 5` (opponent reads reset every 50 hands,
-like a new match in the app; duplicate format; 60,000 hands per heads-up row, 120,000 per 6-max
-row, 300,000 at 200 BB, 240,000 at 10 BB heads-up; any illegal action aborts the run). Expert bb/100 with 95% CI — all 43
-rows are significant wins:
+Measured with > poker-trainer@0.1.0 sim
+> tsx scripts/sim.ts --hands 120000 --chunks 6
+Expert vs each opponent — heads-up, duplicate (every deck played twice with seats swapped).
+Opponent reads reset every 50 hands (like a new match in the app). 120,000 hands per row (4x at 10 BB, where push/fold edges are small).
+
+Stack  Opponent                               Expert bb/100 (95% CI)    Result
+100 BB  Solid (TAG)                           NaN ± NaN                 NOT significant
+100 BB  Aggressive (LAG)                      NaN ± NaN                 NOT significant
+100 BB  Tight-passive (nit)                   NaN ± NaN                 NOT significant
+100 BB  Calling station                       NaN ± NaN                 NOT significant
+100 BB  Exploit: TAG that 3-bets every open   NaN ± NaN                 NOT significant
+100 BB  Exploit: shove every hand             NaN ± NaN                 NOT significant
+100 BB  Baseline: random legal                NaN ± NaN                 NOT significant
+100 BB  Baseline: always call                 NaN ± NaN                 NOT significant
+100 BB  Baseline: always raise                NaN ± NaN                 NOT significant
+ 40 BB  Solid (TAG)                           NaN ± NaN                 NOT significant
+ 40 BB  Aggressive (LAG)                      NaN ± NaN                 NOT significant
+ 40 BB  Tight-passive (nit)                   NaN ± NaN                 NOT significant
+ 40 BB  Calling station                       NaN ± NaN                 NOT significant
+ 40 BB  Exploit: shove every hand             NaN ± NaN                 NOT significant
+ 20 BB  Solid (TAG)                           NaN ± NaN                 NOT significant
+ 20 BB  Aggressive (LAG)                      NaN ± NaN                 NOT significant
+ 20 BB  Tight-passive (nit)                   NaN ± NaN                 NOT significant
+ 20 BB  Calling station                       NaN ± NaN                 NOT significant
+ 20 BB  Exploit: shove every hand             NaN ± NaN                 NOT significant
+ 20 BB  Exploit: TAG that 3-bets every open   NaN ± NaN                 NOT significant
+ 10 BB  Solid (TAG)                           NaN ± NaN                 NOT significant
+ 10 BB  Aggressive (LAG)                      NaN ± NaN                 NOT significant
+ 10 BB  Tight-passive (nit)                   NaN ± NaN                 NOT significant
+ 10 BB  Calling station                       NaN ± NaN                 NOT significant
+ 10 BB  Exploit: shove every hand             NaN ± NaN                 NOT significant
+
+6-max: one Expert against five copies of each bot (duplicate, seats rotated), 0 hands per row (2.5x at 200 BB).
+Stack  Opponents                              Expert bb/100 (95% CI)    Result
+100 BB  5 × Solid (TAG)                       NaN ± NaN                 NOT significant
+100 BB  5 × Aggressive (LAG)                  NaN ± NaN                 NOT significant
+100 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
+100 BB  5 × Calling station                   NaN ± NaN                 NOT significant
+ 40 BB  5 × Solid (TAG)                       NaN ± NaN                 NOT significant
+ 40 BB  5 × Aggressive (LAG)                  NaN ± NaN                 NOT significant
+ 40 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
+ 40 BB  5 × Calling station                   NaN ± NaN                 NOT significant
+ 20 BB  5 × Solid (TAG)                       NaN ± NaN                 NOT significant
+ 20 BB  5 × Aggressive (LAG)                  NaN ± NaN                 NOT significant
+ 20 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
+ 20 BB  5 × Calling station                   NaN ± NaN                 NOT significant
+ 20 BB  5 × Exploit: shove every hand         NaN ± NaN                 NOT significant
+200 BB  5 × Solid (TAG)                       NaN ± NaN                 NOT significant
+200 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
+ 12 BB  5 × Solid (TAG)                       NaN ± NaN                 NOT significant
+ 12 BB  5 × Aggressive (LAG)                  NaN ± NaN                 NOT significant
+ 12 BB  5 × Tight-passive (nit)               NaN ± NaN                 NOT significant
+
+Illegal bot actions: none (any illegal action aborts the run) at commit 59bfdf6 (opponent reads reset every
+50 hands, like a new match in the app; duplicate format; 120,000 hands per heads-up row, 240,000 per
+6-max row, 600,000 at 200 BB, 480,000 at 10 BB heads-up; any illegal action aborts the run). Expert
+bb/100 with 95% CI — all 43 rows are significant wins:
 
 | Format | Opponent | 200 BB | 100 BB | 40 BB | 20 BB | 12 / 10 BB |
 |---|---|---|---|---|---|---|
-| Heads-up | Solid (TAG) | | +13.6 ± 4.7 | +53.9 ± 3.6 | +41.1 ± 2.4 | +5.8 ± 2.4 |
-| Heads-up | Aggressive (LAG) | | +15.2 ± 9.2 | +59.1 ± 6.7 | +39.1 ± 3.8 | +3.4 ± 1.1 (250k hands) |
-| Heads-up | Tight-passive (nit) | | +28.5 ± 4.0 | +40.5 ± 3.4 | +43.5 ± 2.5 | +9.9 ± 2.0 |
-| Heads-up | Calling station | | +96.5 ± 6.4 | +86.6 ± 6.4 | +71.0 ± 4.4 | +29.6 ± 3.2 |
-| Heads-up | Exploit: 3-bets every open | | +70.1 ± 8.4 | | +155.7 ± 5.0 | |
-| Heads-up | Exploit: shoves every hand | | +558.2 ± 38.6 | +202.4 ± 15.7 | +77.3 ± 7.5 | +38.5 ± 3.9 |
-| Heads-up | Random legal / always call / maniac | | +349.3 / +437.5 / +747.7 | | | |
-| 6-max, Expert vs 5 × | Solid (TAG) | +13.1 ± 3.2 | +8.4 ± 3.8 | +15.7 ± 2.6 | +13.4 ± 1.8 | +4.7 ± 1.2 |
-| 6-max, Expert vs 5 × | Aggressive (LAG) | | +24.8 ± 6.0 | +12.7 ± 3.8 | +5.0 ± 2.4 | +4.0 ± 1.6 |
-| 6-max, Expert vs 5 × | Tight-passive (nit) | +13.2 ± 2.6 | +14.7 ± 3.3 | +16.7 ± 2.7 | +18.5 ± 2.0 | +6.4 ± 1.1 |
-| 6-max, Expert vs 5 × | Calling station | | +144.3 ± 8.8 | +109.3 ± 5.6 | +66.7 ± 3.6 | |
-| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +122.1 ± 9.7 | |
+| Heads-up | Solid (TAG) | | +13.7 ± 3.3 | +11.6 ± 2.3 | +25.5 ± 1.5 | +5.9 ± 0.9 |
+| Heads-up | Aggressive (LAG) | | +20.5 ± 6.5 | +4.4 ± 4.0 | +9.0 ± 2.4 | +3.1 ± 0.8 |
+| Heads-up | Tight-passive (nit) | | +24.2 ± 2.8 | +30.2 ± 2.2 | +34.8 ± 1.6 | +7.5 ± 0.7 |
+| Heads-up | Calling station | | +91.8 ± 4.5 | +88.0 ± 4.3 | +65.7 ± 2.9 | +28.7 ± 1.1 |
+| Heads-up | Exploit: 3-bets every open | | +63.5 ± 5.9 | | +84.2 ± 3.3 | |
+| Heads-up | Exploit: shoves every hand | | +570.2 ± 27.3 | +197.3 ± 11.1 | +73.9 ± 5.3 | +38.4 ± 1.4 |
+| Heads-up | Random legal / always call / maniac | | +360.3 / +436.5 / +730.7 | | | |
+| 6-max, Expert vs 5 × | Solid (TAG) | +10.6 ± 2.1 | +8.8 ± 2.4 | +7.2 ± 1.5 | +8.0 ± 1.1 | +3.4 ± 0.8 |
+| 6-max, Expert vs 5 × | Aggressive (LAG) | | +26.4 ± 4.0 | +6.0 ± 2.2 | +4.8 ± 1.5 | +2.9 ± 1.1 |
+| 6-max, Expert vs 5 × | Tight-passive (nit) | +12.5 ± 1.7 | +12.5 ± 2.2 | +14.0 ± 1.7 | +12.2 ± 1.3 | +5.3 ± 0.8 |
+| 6-max, Expert vs 5 × | Calling station | | +145.3 ± 6.2 | +111.1 ± 4.0 | +65.5 ± 2.5 | |
+| 6-max, Expert vs 5 × | Exploit: shoves every hand | | | | +112.0 ± 6.7 | |
+
+(The 40 BB heads-up edges shrank after the round-5 fix: the old re-shoves won against these bots
+only because they over-fold; the new ranges hold up against a best response.)
 
 (12 / 10 BB column: 6-max rows are 12 BB, heads-up rows 10 BB.)
 
@@ -262,6 +318,24 @@ Built (pure TS in `src/analysis/`, run in the Web Worker):
   (summary, results card, progress table). Minors: last-hand status copy, "No grade" badge,
   chart labels and hollow dots for short matches, Home/End on report tabs, replay notes stay
   beside the table down to ~1000 px, settings copy, keyboard volume sample.
+
+### Round 5 (Milestone 3) and round 3 (Milestone 4)
+- strategy-critic M3 round 5: **Not ready (1 blocker)**: at 25–40 BB the Expert re-shoved 30–97% of
+  hands over a min-open, and flat-calling beat it → fixed: re-shoves only at ≤ 30 BB and only with
+  hands inside the shove share the fold-equity model assumes (re-shove ≈ 12% 6-max / 22% HU at
+  30 BB, every class +EV vs a best response); short-stack open widening removed;
+  tests/unit/reshove.test.ts pins the width. Also: Expert BB defence scales realisation by hand
+  strength (continue 63% vs BTN, 44% vs UTG, 68% HU; was 87–92%), and weak hands keep more equity
+  facing proven aggressive bettors (HU 40 BB vs LAG +5.4 ± 4.0 over 120k hands).
+- strategy-critic M4 round 3: **Not ready (1 blocker, 4 majors)** → fixed: heads-up open advice
+  uses an ~80% button chart and HU defend/3-bet frequencies (no standard HU open is flagged);
+  call explanations no longer claim "out of position" and state the realised share of the pot
+  plainly; multiway bet EV averages over which opponents actually continue; overbets are shown
+  but not used as the yardstick for other sizes (and get folded to more); open EV uses the
+  likely caller's seat for realisation, wider BB defence vs late/SB opens, smaller 3-bet share,
+  and 72o-type button opens are flagged. Minors: paired-board mixes/hand names, bad-bluff only
+  below fair share, no filler "good folds", larger samples for exploit tips, short-stack
+  preflop spots flagged from 0.4 BB. 116 tests.
 
 ## Milestone 5 — Polish
 - Settings dialog (src/ui/components/SettingsModal.tsx, src/ui/settings.ts): bot thinking time,
