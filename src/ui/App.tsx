@@ -276,12 +276,12 @@ export function App() {
     (snap.match.handsPlayed >= snap.handsTotal || (snap.match.seats[0].stack <= 0 && !snap.match.seats[0].autoRebuy));
   let waiting = '';
   const nextActor = h && !h.finished && h.toAct >= 0 && h.toAct !== snap.userPi ? h.players[h.toAct].name : null;
-  if (timedOut) waiting = timedOut;
-  else if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
+  if (thinkingName) waiting = `${thinkingName} is thinking…  (Space to skip)`;
   else if (nextActor) waiting = `${nextActor} to act`;
   else if (snap.phase === 'handOver' && lastHand) waiting = snap.match!.seats[0].stack <= 0 ? 'You ran out of chips — press Space to see your report' : 'Match finished — press Space to see your report';
   else if (snap.phase === 'handOver') waiting = prefs.pauseAfterHand ? 'Hand over — press Space or “Next hand” to continue' : 'Hand over — next hand coming up';
   if (heroDisplay?.folded && snap.phase === 'playing') waiting = `You folded — watching the rest of the hand${thinkingName ? ` · ${thinkingName} is thinking…` : ''}`;
+  if (timedOut) waiting = timedOut;
   const preActs = h ? h.actions.filter((a) => a.street === 'preflop') : [];
   const preflopRaises = preActs.filter((a) => a.type === 'raise' || a.type === 'bet').length;
   const firstRaise = preActs.findIndex((a) => a.type === 'raise' || a.type === 'bet');

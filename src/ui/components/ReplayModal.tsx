@@ -53,6 +53,7 @@ export function ReplayModal({ hand, heroPi, tableSize, bigBlind, onClose, loadNo
   }, [playing, step, steps.length]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector('.modal--closing')) return; // closing: keys go back to the table
       const t = e.target as HTMLElement | null;
       if (e.key === 'ArrowRight') setStep((s) => Math.min(s + 1, steps.length - 1));
       else if (e.key === 'ArrowLeft') setStep((s) => Math.max(s - 1, 0));

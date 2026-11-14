@@ -351,6 +351,9 @@ Built (pure TS in `src/analysis/`, run in the Web Worker):
   plain "Raise" when disabled, setup copy for small tables, "You ran out of chips", lazy
   AudioContext, total cost in the results row, stable report scrollbar. The e2e test was
   updated for the renamed "Change settings" button.
+  Re-review: **Ready (0 blockers, 0 majors)**; its two leftover minors (Space lost while a replay
+  closes, time's-up text hidden by the folded line) fixed afterwards. Open minors: bet box vs HUD
+  strip on side seats, side-pot pill touching the board, log scroll jump at hand end.
 
 ## Milestone 5 — Polish
 - Settings dialog (src/ui/components/SettingsModal.tsx, src/ui/settings.ts): bot thinking time,
