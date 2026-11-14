@@ -213,7 +213,7 @@ async function main() {
   const [hu, vs, ringRows] = await Promise.all([Promise.all(huJobs), Promise.all(vsJobs), ringJob]);
 
   console.log(`Expert vs each opponent — heads-up, duplicate (every deck played twice with seats swapped).`);
-  console.log(`Opponent reads reset every ${reset || '∞'} hands (like a new match in the app). ${hands.toLocaleString()} hands per row.\n`);
+  console.log(`Opponent reads reset every ${reset || '∞'} hands (like a new match in the app). ${hands.toLocaleString()} hands per row (4x at 10 BB, where push/fold edges are small).\n`);
   console.log('Stack  Opponent'.padEnd(46) + 'Expert bb/100 (95% CI)    Result');
   let allWin = true;
   for (const r of hu) {
