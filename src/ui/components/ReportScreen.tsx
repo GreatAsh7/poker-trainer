@@ -133,7 +133,7 @@ export function ReportScreen({ report: r, history, canReplay, onReplay, onPlayAg
                     <dt>Costly decisions</dt>
                     <dd>
                       {r.mistakesCount}{' '}
-                      {r.hands >= 15 ? `(≈ ${r.evLossBB100.toFixed(1)} BB per 100 hands)` : `(≈ ${((r.evLossBB100 * r.hands) / 100).toFixed(1)} BB in total)`}
+                      {r.hands >= 15 ? `(≈ ${((r.evLossBB100 * r.hands) / 100).toFixed(1)} BB in total, ${r.evLossBB100.toFixed(1)} BB per 100 hands)` : `(≈ ${((r.evLossBB100 * r.hands) / 100).toFixed(1)} BB in total)`}
                     </dd>
                   </div>
                   {r.allIn.count > 0 && (

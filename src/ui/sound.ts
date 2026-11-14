@@ -11,13 +11,6 @@ let enabled = false;
 export function setSound(on: boolean, vol = volume) {
   enabled = on;
   volume = Math.max(0, Math.min(1, vol));
-  if (on && !ctx) {
-    try {
-      ctx = new AudioContext();
-    } catch {
-      ctx = null;
-    }
-  }
   if (on && ctx?.state === 'suspended') void ctx.resume();
 }
 
@@ -55,7 +48,17 @@ function noise(start: number, dur: number, gain: number, freq: number) {
 }
 
 export function play(name: SoundName) {
-  if (!enabled || !ctx) return;
+  if (!enabled) return;
+  // created on the first sound after the user has interacted, so the browser lets it start
+  if (!ctx && (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive !== false) {
+    try {
+      ctx = new AudioContext();
+    } catch {
+      ctx = null;
+    }
+  }
+  if (!ctx) return;
+  if (ctx.state === 'suspended') void ctx.resume();
   const t = ctx.currentTime + 0.005;
   switch (name) {
     case 'deal':

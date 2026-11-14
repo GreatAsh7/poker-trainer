@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------- report */
-.report { height: 100%; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #33424e transparent; }
+.report { height: 100%; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #33424e transparent; }
 .report__inner { max-width: 1180px; margin: 0 auto; padding: 24px 24px 64px; display: flex; flex-direction: column; gap: 18px; }
 .rcard {
   background: var(--panel); border: 1px solid #2a3742; border-radius: 16px; padding: 20px 22px;
